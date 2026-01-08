@@ -1,0 +1,216 @@
+import 'dart:io';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:matrix/matrix.dart';
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:monochat/utils/client_download_extension.dart';
+import 'package:monochat/ui/widgets/mxc_image.dart';
+
+class VideoBubble extends StatefulWidget {
+  final Event event;
+  final bool isMe;
+  final Client client;
+
+  const VideoBubble({
+    super.key,
+    required this.event,
+    required this.isMe,
+    required this.client,
+  });
+
+  @override
+  State<VideoBubble> createState() => _VideoBubbleState();
+}
+
+class _VideoBubbleState extends State<VideoBubble> {
+  VideoPlayerController? _videoPlayerController;
+  ChewieController? _chewieController;
+  bool _isInitializing = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _videoPlayerController?.dispose();
+    _chewieController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initializeVideo() async {
+    if (_isInitializing || _videoPlayerController != null) return;
+
+    setState(() {
+      _isInitializing = true;
+      _error = null;
+    });
+
+    try {
+      // 1. Get the video file
+      // We need to download it to a temporary file to play it with video_player
+      // (Unless we can play from network URL directly, which works for mxc:// converted to http)
+
+      final url = await widget.event.content
+          .tryGet<String>('url')
+          ?.getDownloadUri(widget.client);
+
+      if (url == null) {
+        throw Exception('Could not resolve video URL');
+      }
+
+      _videoPlayerController = VideoPlayerController.networkUrl(url);
+      await _videoPlayerController!.initialize();
+
+      _chewieController = ChewieController(
+        videoPlayerController: _videoPlayerController!,
+        aspectRatio: _videoPlayerController!.value.aspectRatio,
+        autoPlay: true,
+        looping: false,
+        allowFullScreen: true,
+        allowMuting: true,
+        showControls: true,
+        // iOS style controls
+        cupertinoProgressColors: ChewieProgressColors(
+          playedColor: CupertinoColors.activeBlue,
+          handleColor: CupertinoColors.activeBlue,
+          backgroundColor: CupertinoColors.systemGrey,
+          bufferedColor: CupertinoColors.systemGrey3,
+        ),
+        materialProgressColors: ChewieProgressColors(
+          // Fallback
+          playedColor: CupertinoColors.activeBlue,
+          handleColor: CupertinoColors.activeBlue,
+          backgroundColor: CupertinoColors.systemGrey,
+          bufferedColor: CupertinoColors.systemGrey3,
+        ),
+        placeholder: const Center(child: CupertinoActivityIndicator()),
+        autoInitialize: true,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isInitializing = false;
+        });
+      }
+    }
+  }
+
+  void _openFullScreenPlayer() {
+    // For now, simpler implementation: inline player expands or opens dialog
+    // But user requested "Professional", so let's try to play inline or open a modal.
+
+    // If not initialized, initialize and play appropriate UI?
+    // Actually, standard pattern is: Show thumbnail with Play button.
+    // On Tap -> Initialize player and show it.
+
+    if (_videoPlayerController == null) {
+      _initializeVideo();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Info for thumbnail ratio
+    final Map? info = widget.event.content['info'] as Map?;
+    final int? w = info?['w'] as int?;
+    final int? h = info?['h'] as int?;
+
+    double aspectRatio = 16 / 9;
+    if (w != null && h != null && h > 0) {
+      aspectRatio = w / h;
+    }
+
+    double width = 240;
+    double height = width / aspectRatio;
+
+    // Constraints
+    if (width > 300) {
+      width = 300;
+      height = width / aspectRatio;
+    }
+
+    if (_chewieController != null &&
+        _chewieController!.videoPlayerController.value.isInitialized) {
+      return Container(
+        width: width,
+        height: height,
+        color: Colors.black,
+        child: Chewie(controller: _chewieController!),
+      );
+    }
+
+    if (_isInitializing) {
+      return Container(
+        width: width,
+        height: height,
+        color: Colors.black12,
+        alignment: Alignment.center,
+        child: const CupertinoActivityIndicator(),
+      );
+    }
+
+    if (_error != null) {
+      return Container(
+        width: width,
+        height: height,
+        color: Colors.black12,
+        alignment: Alignment.center,
+        child: const Icon(
+          CupertinoIcons.exclamationmark_triangle,
+          color: CupertinoColors.destructiveRed,
+        ),
+      );
+    }
+
+    // Thumbnail state
+    return GestureDetector(
+      onTap: _openFullScreenPlayer,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Placeholder / Thumbnail
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: SizedBox(
+              width: width,
+              height: height,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Container(color: Colors.black26),
+                  if ((widget.event.content['info'] as Map?)?['thumbnail_url']
+                      is String)
+                    MxcImage(
+                      uri: Uri.tryParse(
+                        (widget.event.content['info'] as Map)['thumbnail_url']
+                            as String,
+                      ),
+                      client: widget.client,
+                      fit: BoxFit.cover,
+                      isThumbnail: true,
+                      width: width,
+                      height: height,
+                    ),
+                  const Center(
+                    child: Icon(
+                      CupertinoIcons.play_circle_fill,
+                      size: 48,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

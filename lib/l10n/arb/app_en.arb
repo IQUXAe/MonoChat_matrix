@@ -1,0 +1,149 @@
+{
+    "@@locale": "en",
+    "chatsTitle": "Chats",
+    "@chatsTitle": {
+        "description": "Title for the room list screen"
+    },
+    "syncing": "Syncing...",
+    "@syncing": {
+        "description": "Loading text while syncing"
+    },
+    "newChat": "New Chat",
+    "@newChat": {
+        "description": "Title for new chat screen"
+    },
+    "messagePlaceholder": "Message",
+    "@messagePlaceholder": {
+        "description": "Placeholder text for message input"
+    },
+    "takePhoto": "Take Photo",
+    "@takePhoto": {
+        "description": "Action sheet option"
+    },
+    "choosePhoto": "Choose Photo",
+    "@choosePhoto": {
+        "description": "Action sheet option"
+    },
+    "chooseVideo": "Choose Video",
+    "@chooseVideo": {
+        "description": "Action sheet option"
+    },
+    "chooseFile": "Choose File",
+    "@chooseFile": {
+        "description": "Action sheet option"
+    },
+    "cancel": "Cancel",
+    "@cancel": {
+        "description": "Cancel action"
+    },
+    "joinRoom": "Join Room",
+    "@joinRoom": {
+        "description": "Button to join a room"
+    },
+    "youHaveBeenInvited": "You have been invited to join\n{roomName}",
+    "@youHaveBeenInvited": {
+        "description": "Invitation message",
+        "placeholders": {
+            "roomName": {
+                "type": "String"
+            }
+        }
+    },
+    "typingIndicator": "{names} is typing...",
+    "@typingIndicator": {
+        "description": "Typing indicator text",
+        "placeholders": {
+            "names": {
+                "type": "String"
+            }
+        }
+    },
+     "replyingTo": "Replying to {user}",
+    "@replyingTo": {
+        "description": "Replying to user text",
+        "placeholders": {
+            "user": {
+                "type": "String"
+            }
+        }
+    },
+    "waitingForMessage": "Waiting for message...",
+    "@waitingForMessage": {
+        "description": "Placeholder for encrypted message"
+    },
+    "filePickerError": "The system file picker could not be opened. This often happens on Linux distributions missing \"xdg-desktop-portal\" services.",
+    "@filePickerError": {
+        "description": "Error message when file picker fails"
+    },
+    "ok": "OK",
+    "@ok": { "description": "OK button text" },
+    "error": "Error",
+    "@error": { "description": "Generic error title" },
+    "save": "Save",
+    "@save": { "description": "Save button text" },
+    "saved": "Saved",
+    "@saved": { "description": "Saved successfully title" },
+    "saveImageTitle": "Save Image?",
+    "@saveImageTitle": { "description": "Dialog title for saving image" },
+    "saveImageContent": "Do you want to save this image?",
+    "@saveImageContent": { "description": "Dialog content for saving image" },
+    "imageSavedSuccess": "Image saved successfully.",
+    "@imageSavedSuccess": { "description": "Success message after saving image" },
+    "systemDialogError": "System dialog unavailable. Image saved to:\n{path}",
+    "@systemDialogError": {
+        "description": "Error message when system dialog fails but fallback worked",
+        "placeholders": {
+            "path": { "type": "String" }
+        }
+    },
+    "failedToSave": "Failed to save: {error}",
+    "@failedToSave": {
+        "description": "Error message when save fails",
+        "placeholders": {
+            "error": { "type": "Object" }
+        }
+    },
+    "send": "Send",
+    "@send": { "description": "Send button text" },
+    "tapToRetry": "Tap to retry",
+    "@tapToRetry": { "description": "Tap to retry text" },
+    "file": "File",
+    "@file": { "description": "Generic file label" },
+    "you": "You",
+    "@you": { "description": "Refers to the current user" },
+    "sendPhoto": "Send Photo",
+    "@sendPhoto": { "description": "Title for sending single photo" },
+    "sendPhotos": "Send {count} Photos",
+    "@sendPhotos": {
+        "description": "Title for sending multiple photos",
+        "placeholders": {
+            "count": { "type": "int" }
+        }
+    },
+    "sendVideo": "Send Video",
+    "@sendVideo": { "description": "Title for sending video" },
+    "sendFile": "Send File",
+    "@sendFile": { "description": "Title for sending single file" },
+    "sendFiles": "Send {count} Files",
+    "@sendFiles": {
+        "description": "Title for sending multiple files",
+        "placeholders": {
+            "count": { "type": "int" }
+        }
+    },
+    "totalSize": "Total size: {size}",
+    "@totalSize": {
+        "description": "File size label",
+        "placeholders": {
+            "size": { "type": "String" }
+        }
+    },
+    "calculating": "Calculating...",
+    "@calculating": { "description": "Loading text for size calculation" },
+    "willBeCompressed": "Will be compressed",
+    "@willBeCompressed": { "description": "Label indicating compression" },
+    "compress": "Compress",
+    "@compress": { "description": "Compression toggle label" },
+    "compressDescription": "Reduce file size for faster sending",
+    "@compressDescription": { "description": "Compression toggle description" }
+}
