@@ -63,4 +63,18 @@ class MatrixRoomRepository implements RoomRepository {
       return Failure(RoomCreationFailedException(debugInfo: e.toString()));
     }
   }
+
+  @override
+  Future<Result<List<Profile>>> searchUsers(String query) async {
+    try {
+      if (_client == null) {
+        return const Failure(ClientNotInitializedException());
+      }
+      final response = await _client!.searchUserDirectory(query);
+      return Success(response.results);
+    } catch (e, s) {
+      _log.warning('Failed to search users', e, s);
+      return Failure(ExceptionMapper.map(e, s));
+    }
+  }
 }

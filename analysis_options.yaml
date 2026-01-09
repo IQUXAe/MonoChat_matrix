@@ -1,28 +1,158 @@
-# This file configures the analyzer, which statically analyzes Dart code to
-# check for errors, warnings, and lints.
-#
-# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
-# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
-# invoked from the command line by running `flutter analyze`.
+# MonoChat Dart/Flutter Analysis Options
+# ========================================
+# Strict linting rules for code quality and best practices.
+# Based on flutter_lints with additional rules for cleaner code.
 
-# The following line activates a set of recommended lints for Flutter apps,
-# packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
-linter:
-  # The lint rules applied to this project can be customized in the
-  # section below to disable rules from the `package:flutter_lints/flutter.yaml`
-  # included above or to enable additional rules. A list of all available lints
-  # and their documentation is published at https://dart.dev/lints.
-  #
-  # Instead of disabling a lint rule for the entire project in the
-  # section below, it can also be suppressed for a single line of code
-  # or a specific dart file by using the `// ignore: name_of_lint` and
-  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
-  # producing the lint.
-  rules:
-    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+analyzer:
+  # Treat specific issues as errors for stricter enforcement
+  errors:
+    # Prevent unused code from accumulating
+    unused_import: warning
+    unused_local_variable: warning
+    dead_code: warning
+    
+    # Async best practices
+    unawaited_futures: info
+    
+  # Exclude generated files from analysis
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "lib/l10n/generated/**"
+    - "build/**"
+    - ".dart_tool/**"
 
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options
+linter:
+  rules:
+    # ==========================================
+    # STYLE - Consistent code formatting
+    # ==========================================
+    
+    # Prefer single quotes for strings (except when the string contains a single quote)
+    prefer_single_quotes: true
+    
+    # Always use curly braces for control flow
+    curly_braces_in_flow_control_structures: true
+    
+    # Prefer const constructors
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    prefer_const_literals_to_create_immutables: true
+    
+    # Trailing commas for better diffs
+    require_trailing_commas: true
+    
+    # Sort directives alphabetically in each section
+    directives_ordering: true
+    
+    # ==========================================
+    # DOCUMENTATION - Clear code intent
+    # ==========================================
+    
+    # Require documentation for public APIs
+    public_member_api_docs: false  # Enable when ready for strict docs
+    
+    # Slash for doc comments
+    slash_for_doc_comments: true
+    
+    # ==========================================
+    # BEST PRACTICES - Prevent common mistakes
+    # ==========================================
+    
+    # Avoid empty catch blocks
+    empty_catches: true
+    
+    # Avoid print statements in production code
+    avoid_print: true
+    
+    # Prefer final for local variables
+    prefer_final_locals: true
+    prefer_final_in_for_each: true
+    
+    # Explicit types when declaration isn't obvious
+    always_declare_return_types: true
+    
+    # Null safety
+    avoid_null_checks_in_equality_operators: true
+    
+    # Collections
+    prefer_is_empty: true
+    prefer_is_not_empty: true
+    prefer_collection_literals: true
+    
+    # Conditionals
+    prefer_conditional_assignment: true
+    prefer_if_null_operators: true
+    prefer_null_aware_operators: true
+    
+    # Function style
+    prefer_expression_function_bodies: false  # Allow block bodies for clarity
+    unnecessary_lambdas: true
+    
+    # Avoid unnecessary code
+    unnecessary_this: true
+    unnecessary_new: true
+    unnecessary_const: true
+    unnecessary_nullable_for_final_variable_declarations: true
+    unnecessary_overrides: true
+    unnecessary_parenthesis: true
+    unnecessary_string_escapes: true
+    unnecessary_string_interpolations: true
+    
+    # Type annotations
+    avoid_types_on_closure_parameters: true  # Let inference work
+    omit_local_variable_types: true  # Prefer var/final when type is obvious
+    
+    # ==========================================
+    # FLUTTER SPECIFIC - Widget best practices
+    # ==========================================
+    
+    # Prefer const widgets
+    sized_box_for_whitespace: true
+    
+    # Avoid unnecessary Container
+    avoid_unnecessary_containers: true
+    
+    # Prefer SizedBox.shrink() over SizedBox()
+    sized_box_shrink_expand: true
+    
+    # Use key for list items
+    use_key_in_widget_constructors: true
+    
+    # Avoid BuildContext in async gaps
+    use_build_context_synchronously: true
+    
+    # ==========================================
+    # ERROR PREVENTION
+    # ==========================================
+    
+    # Prevent infinite loops
+    literal_only_boolean_expressions: true
+    
+    # Ensure proper disposal
+    cancel_subscriptions: true
+    close_sinks: true
+    
+    # Prefer interpolation over concatenation
+    prefer_interpolation_to_compose_strings: true
+    
+    # Use spread collections
+    prefer_spread_collections: true
+    
+    # Avoid shadowing
+    avoid_shadowing_type_parameters: true
+    
+    # ==========================================
+    # DISABLED RULES - For flexibility
+    # ==========================================
+    
+    # Allow positional boolean parameters for simple callbacks
+    avoid_positional_boolean_parameters: false
+    
+    # Sometimes dynamic is needed
+    avoid_dynamic_calls: false
+    
+    # Allow non-ascii identifiers for i18n
+    non_constant_identifier_names: true

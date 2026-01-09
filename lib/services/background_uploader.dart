@@ -1,17 +1,22 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:logging/logging.dart';
 
-/// Message types for isolate communication
+// =============================================================================
+// ISOLATE MESSAGE TYPES
+// =============================================================================
+
+/// Base class for isolate messages.
 sealed class IsolateMessage {}
 
+/// Request to upload a file.
 class UploadRequest extends IsolateMessage {
   final String id;
   final String uploadUrl;
-  final String filePath; // Changed from bytes to filePath
+  final String filePath;
   final String filename;
   final String? contentType;
   final Map<String, String> headers;
@@ -26,6 +31,7 @@ class UploadRequest extends IsolateMessage {
   });
 }
 
+/// Response from upload operation.
 class UploadResponse extends IsolateMessage {
   final String id;
   final String? mxcUri;
@@ -36,7 +42,12 @@ class UploadResponse extends IsolateMessage {
   bool get isSuccess => mxcUri != null;
 }
 
+/// Request to shutdown the isolate.
 class ShutdownRequest extends IsolateMessage {}
+
+// =============================================================================
+// BACKGROUND UPLOADER
+// =============================================================================
 
 /// Runs file uploads in a background isolate to prevent UI jank.
 ///
@@ -45,15 +56,23 @@ class ShutdownRequest extends IsolateMessage {}
 class BackgroundUploader {
   static final Logger _log = Logger('BackgroundUploader');
 
+  // ===========================================================================
+  // STATE
+  // ===========================================================================
+
   Isolate? _isolate;
   SendPort? _sendPort;
   final _responseController = StreamController<UploadResponse>.broadcast();
   final Completer<void> _ready = Completer<void>();
 
-  /// Stream of upload responses
+  /// Stream of upload responses.
   Stream<UploadResponse> get responses => _responseController.stream;
 
-  /// Initialize the background isolate
+  // ===========================================================================
+  // LIFECYCLE
+  // ===========================================================================
+
+  /// Initializes the background isolate.
   Future<void> init() async {
     if (_isolate != null) return;
 
@@ -74,8 +93,22 @@ class BackgroundUploader {
     _log.info('Background uploader initialized');
   }
 
-  /// Upload a file in the background
-  /// Returns the request ID for tracking
+  /// Shuts down the isolate.
+  void dispose() {
+    _sendPort?.send(ShutdownRequest());
+    _isolate?.kill(priority: Isolate.immediate);
+    _isolate = null;
+    _sendPort = null;
+    _responseController.close();
+  }
+
+  // ===========================================================================
+  // PUBLIC API
+  // ===========================================================================
+
+  /// Uploads a file in the background.
+  ///
+  /// Returns the request ID for tracking.
   String upload({
     required String uploadUrl,
     required String filePath,
@@ -103,7 +136,7 @@ class BackgroundUploader {
     return id;
   }
 
-  /// Upload and wait for result
+  /// Uploads and waits for the result.
   Future<UploadResponse> uploadAndWait({
     required String uploadUrl,
     required String filePath,
@@ -122,16 +155,11 @@ class BackgroundUploader {
     return responses.firstWhere((r) => r.id == id);
   }
 
-  /// Shutdown the isolate
-  void dispose() {
-    _sendPort?.send(ShutdownRequest());
-    _isolate?.kill(priority: Isolate.immediate);
-    _isolate = null;
-    _sendPort = null;
-    _responseController.close();
-  }
+  // ===========================================================================
+  // ISOLATE LOGIC
+  // ===========================================================================
 
-  /// Isolate entry point - runs in background thread
+  /// Isolate entry point - runs in background thread.
   static void _isolateEntryPoint(SendPort mainSendPort) {
     final receivePort = ReceivePort();
     mainSendPort.send(receivePort.sendPort);
@@ -147,7 +175,7 @@ class BackgroundUploader {
     });
   }
 
-  /// Perform the actual HTTP upload
+  /// Performs the actual HTTP upload.
   static Future<UploadResponse> _performUpload(UploadRequest request) async {
     try {
       final file = File(request.filePath);
@@ -159,9 +187,7 @@ class BackgroundUploader {
       }
 
       final client = HttpClient();
-      client.connectionTimeout = const Duration(
-        minutes: 5,
-      ); // Increased timeout for large files
+      client.connectionTimeout = const Duration(minutes: 5);
 
       final uri = Uri.parse(request.uploadUrl);
       final httpRequest = await client.postUrl(uri);
@@ -180,20 +206,16 @@ class BackgroundUploader {
       final length = await file.length();
       httpRequest.headers.contentLength = length;
 
-      // Stream body (avoids loading into memory)
+      // Stream body to avoid loading into memory
       await httpRequest.addStream(file.openRead());
 
-      // Get response
       final response = await httpRequest.close();
-      final responseBody = await response
-          .transform(const SystemEncoding().decoder)
-          .join();
+      final responseBody = await response.transform(utf8.decoder).join();
 
       client.close();
 
       if (response.statusCode == 200) {
         // Parse MXC URI from response
-        // Response format: {"content_uri": "mxc://..."}
         final match = RegExp(
           r'"content_uri"\s*:\s*"([^"]+)"',
         ).firstMatch(responseBody);
@@ -216,5 +238,9 @@ class BackgroundUploader {
   }
 }
 
-/// Singleton instance
+// =============================================================================
+// SINGLETON INSTANCE
+// =============================================================================
+
+/// Global singleton instance for convenient access.
 final backgroundUploader = BackgroundUploader();

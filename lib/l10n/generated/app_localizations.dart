@@ -325,6 +325,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Reduce file size for faster sending'**
   String get compressDescription;
+
+  /// Settings screen title
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settings;
+
+  /// Profile screen title
+  ///
+  /// In en, this message translates to:
+  /// **'Profile'**
+  String get profile;
+
+  /// Fallback for unknown user
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown User'**
+  String get unknownUser;
+
+  /// Button to start new chat
+  ///
+  /// In en, this message translates to:
+  /// **'Start Conversation'**
+  String get startConversation;
+
+  /// Button to send message to existing chat
+  ///
+  /// In en, this message translates to:
+  /// **'Send Message'**
+  String get sendMessage;
+
+  /// Action to ignore user
+  ///
+  /// In en, this message translates to:
+  /// **'Ignore User'**
+  String get ignoreUser;
+
+  /// Confirmation for ignoring user
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to ignore {userName}? You will no longer see messages from this user.'**
+  String ignoreUserConfirmation(String userName);
+
+  /// Confirm ignore action
+  ///
+  /// In en, this message translates to:
+  /// **'Ignore'**
+  String get ignore;
+
+  /// Close button
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get close;
+
+  /// User is online
+  ///
+  /// In en, this message translates to:
+  /// **'Online'**
+  String get online;
+
+  /// User is offline
+  ///
+  /// In en, this message translates to:
+  /// **'Offline'**
+  String get offline;
+
+  /// User was active just now
+  ///
+  /// In en, this message translates to:
+  /// **'Just now'**
+  String get justNow;
+
+  /// Last seen minutes ago
+  ///
+  /// In en, this message translates to:
+  /// **'Last seen {minutes} min ago'**
+  String lastSeenMinutesAgo(int minutes);
+
+  /// Last seen hours ago
+  ///
+  /// In en, this message translates to:
+  /// **'Last seen {hours}h ago'**
+  String lastSeenHoursAgo(int hours);
+
+  /// Last seen at date
+  ///
+  /// In en, this message translates to:
+  /// **'Last seen {date}'**
+  String lastSeenAt(String date);
 }
 
 class _AppLocalizationsDelegate

@@ -10,6 +10,8 @@ import 'package:gap/gap.dart';
 
 import '../../utils/size_string.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
+import 'package:monochat/controllers/theme_controller.dart';
+import 'package:provider/provider.dart';
 
 /// iOS-styled dialog for sending files with compression options.
 ///
@@ -97,6 +99,7 @@ class _SendFileDialogState extends State<SendFileDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.watch<ThemeController>().palette;
     final uniqueType = _getUniqueFileType();
     final isImage = uniqueType == 'image';
     final isVideo = uniqueType == 'video';
@@ -253,7 +256,7 @@ class _SendFileDialogState extends State<SendFileDialog> {
                     flex: 2,
                     child: CupertinoButton(
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      color: CupertinoColors.activeBlue,
+                      color: palette.primary,
                       borderRadius: BorderRadius.circular(12),
                       onPressed: _isSending ? null : _send,
                       child: _isSending
@@ -389,7 +392,7 @@ class _SendFileDialogState extends State<SendFileDialog> {
             child: Icon(
               _getFileIcon(),
               size: 28,
-              color: CupertinoColors.activeBlue,
+              color: context.watch<ThemeController>().palette.primary,
             ),
           ),
           const Gap(16),

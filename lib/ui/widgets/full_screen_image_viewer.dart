@@ -248,9 +248,9 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
               scrollPhysics: const BouncingScrollPhysics(),
               builder: (BuildContext context, int index) {
                 final event = widget.images[index];
-                final uriStr =
-                    event.content.tryGet<String>('url') ??
-                    (event.content['file'] as Map?)?['url'];
+                // Only use URI for unencrypted images. Encrypted images need the event
+                // to be passed to MxcImage so it can handle decryption.
+                final uriStr = event.content.tryGet<String>('url');
                 final uri = uriStr != null ? Uri.tryParse(uriStr) : null;
 
                 return PhotoViewGalleryPageOptions.customChild(

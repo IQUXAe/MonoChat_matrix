@@ -37,5 +37,20 @@
     "calculating": "Считаем...",
     "willBeCompressed": "Будет сжато",
     "compress": "Сжать",
-    "compressDescription": "Уменьшить размер для быстрой отправки"
+    "compressDescription": "Уменьшить размер для быстрой отправки",
+    "settings": "Настройки",
+    "profile": "Профиль",
+    "unknownUser": "Неизвестный пользователь",
+    "startConversation": "Начать чат",
+    "sendMessage": "Написать",
+    "ignoreUser": "Игнорировать",
+    "ignoreUserConfirmation": "Вы уверены, что хотите игнорировать {userName}? Вы больше не будете видеть сообщения от этого пользователя.",
+    "ignore": "Игнорировать",
+    "close": "Закрыть",
+    "online": "В сети",
+    "offline": "Не в сети",
+    "justNow": "Только что",
+    "lastSeenMinutesAgo": "Был(а) {minutes} мин назад",
+    "lastSeenHoursAgo": "Был(а) {hours}ч назад",
+    "lastSeenAt": "Был(а) {date}"
 }

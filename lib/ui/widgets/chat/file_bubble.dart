@@ -105,19 +105,19 @@ class _FileBubbleState extends State<FileBubble> {
   Widget build(BuildContext context) {
     // Reverted visual style but alignment is handled by parent MessageBubble now.
     // Style: isMe ? activeBlue.withOpacity(0.1) : systemGrey6
+    // Style: isMe ? activeBlue.withOpacity(0.1) : systemGrey6
     final bg = widget.isMe
-        ? CupertinoColors.activeBlue.withOpacity(0.1)
-        : CupertinoColors.systemGrey6;
+        ? CupertinoColors.activeBlue.withValues(alpha: 0.1)
+        : CupertinoColors.systemGrey6.resolveFrom(context);
 
     final borderColor = widget.isMe
-        ? CupertinoColors.activeBlue.withOpacity(0.3)
-        : CupertinoColors.systemGrey4;
+        ? CupertinoColors.activeBlue.withValues(alpha: 0.3)
+        : CupertinoColors.systemGrey4.resolveFrom(context);
 
-    final textColor =
-        CupertinoColors.black; // Both use black in this style basically
+    final textColor = CupertinoColors.label.resolveFrom(context);
     final iconColor = widget.isMe
         ? CupertinoColors.activeBlue
-        : CupertinoColors.systemGrey;
+        : CupertinoColors.systemGrey.resolveFrom(context);
 
     return GestureDetector(
       onTap: _isDownloading ? null : _save,

@@ -1,26 +1,50 @@
 import 'dart:async';
-import 'package:matrix/matrix.dart';
-import 'package:logging/logging.dart';
 
-/// Service for background synchronization to maintain server connection without blocking UI.
+import 'package:logging/logging.dart';
+import 'package:matrix/matrix.dart';
+
+// =============================================================================
+// BACKGROUND SYNC SERVICE
+// =============================================================================
+
+/// Service for background synchronization.
+///
+/// Maintains server connection without blocking UI by:
+/// - Performing periodic sync operations
+/// - Sending heartbeat requests to prevent connection drops
 class BackgroundSyncService {
   static final Logger _log = Logger('BackgroundSyncService');
+
+  // ===========================================================================
+  // STATE
+  // ===========================================================================
+
   static Client? _client;
   static Timer? _syncTimer;
   static Timer? _heartbeatTimer;
   static bool _isActive = false;
-  static int _syncInterval = 30; // 30 seconds
-  static int _heartbeatInterval = 30;
 
+  static const int _defaultSyncInterval = 30; // seconds
+  static const int _heartbeatInterval = 30; // seconds
+
+  static int _syncInterval = _defaultSyncInterval;
+
+  // ===========================================================================
+  // PUBLIC API
+  // ===========================================================================
+
+  /// Starts background sync for the given client.
   static Future<void> startBackgroundSync(Client client) async {
     _client = client;
-
     _isActive = true;
+
     _startSyncLoop();
     _startHeartbeatLoop();
+
     _log.info('Background sync started');
   }
 
+  /// Stops background sync.
   static void stopBackgroundSync() {
     _isActive = false;
     _syncTimer?.cancel();
@@ -30,9 +54,21 @@ class BackgroundSyncService {
     _log.info('Background sync stopped');
   }
 
+  /// Updates the sync interval (in seconds).
+  static void updateSyncInterval(int seconds) {
+    _syncInterval = seconds;
+    if (_isActive) {
+      _startSyncLoop();
+    }
+  }
+
+  // ===========================================================================
+  // INTERNAL
+  // ===========================================================================
+
   static void _startSyncLoop() {
     _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(Duration(seconds: _syncInterval), (timer) {
+    _syncTimer = Timer.periodic(Duration(seconds: _syncInterval), (_) {
       if (_isActive && _client != null) {
         _performBackgroundSync();
       }
@@ -41,25 +77,24 @@ class BackgroundSyncService {
 
   static void _startHeartbeatLoop() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(Duration(seconds: _heartbeatInterval), (
-      timer,
-    ) {
-      if (_isActive && _client != null) {
-        _performHeartbeat();
-      }
-    });
+    _heartbeatTimer = Timer.periodic(
+      const Duration(seconds: _heartbeatInterval),
+      (_) {
+        if (_isActive && _client != null) {
+          _performHeartbeat();
+        }
+      },
+    );
   }
 
   static Future<void> _performBackgroundSync() async {
     if (_client == null) return;
 
     try {
-      // Perform a lightweight one-shot sync
       await _client!.oneShotSync(timeout: const Duration(seconds: 10));
       _log.fine('Sync iteration completed');
     } catch (e) {
       _log.warning('Sync failed: $e');
-      // Try heartbeat on failure
       await _performHeartbeat();
     }
   }
@@ -74,13 +109,6 @@ class BackgroundSyncService {
       }
     } catch (e) {
       _log.fine('Heartbeat failed: $e');
-    }
-  }
-
-  static void updateSyncInterval(int seconds) {
-    _syncInterval = seconds;
-    if (_isActive) {
-      _startSyncLoop();
     }
   }
 }

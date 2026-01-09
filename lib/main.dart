@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:logging/logging.dart';
 import 'package:monochat/controllers/auth_controller.dart';
@@ -8,30 +9,15 @@ import 'package:monochat/controllers/room_list_controller.dart';
 import 'package:monochat/data/repositories/matrix_auth_repository.dart';
 import 'package:monochat/data/repositories/matrix_room_repository.dart';
 import 'package:monochat/services/matrix_service.dart';
+import 'package:monochat/ui/screens/home_screen.dart';
 import 'package:monochat/ui/screens/login_screen.dart';
-import 'package:monochat/ui/screens/room_list_screen.dart';
 import 'package:provider/provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Configure logging to show in console
-  Logger.root.level = Level.ALL;
-  Logger.root.onRecord.listen((record) {
-    // Use debugPrint for visible output in flutter run console
-    final time = record.time.toIso8601String().substring(11, 23);
-    final level = record.level.name.padRight(7);
-    final message = '[$time] $level ${record.loggerName}: ${record.message}';
-
-    if (record.error != null) {
-      debugPrint('$message\n  Error: ${record.error}');
-      if (record.stackTrace != null) {
-        debugPrint('  ${record.stackTrace}');
-      }
-    } else {
-      debugPrint(message);
-    }
-  });
+  // Configure logging based on build mode
+  _setupLogging();
 
   // Dependency Injection Root
   final matrixService = MatrixService();
@@ -47,10 +33,40 @@ void main() {
         ChangeNotifierProvider(
           create: (_) => RoomListController(roomRepository),
         ),
+        ChangeNotifierProvider(create: (_) => ThemeController()),
       ],
       child: const MonoChatApp(),
     ),
   );
+}
+
+/// Configures logging based on build mode.
+///
+/// - Debug: Shows all log levels in console
+/// - Release: Logging is completely disabled for performance
+void _setupLogging() {
+  if (kReleaseMode) {
+    // Completely disable logging in release mode
+    Logger.root.level = Level.OFF;
+    return;
+  }
+
+  // Debug mode: show all logs
+  Logger.root.level = Level.ALL;
+  Logger.root.onRecord.listen((record) {
+    final time = record.time.toIso8601String().substring(11, 23);
+    final level = record.level.name.padRight(7);
+    final message = '[$time] $level ${record.loggerName}: ${record.message}';
+
+    if (record.error != null) {
+      debugPrint('$message\n  Error: ${record.error}');
+      if (record.stackTrace != null) {
+        debugPrint('  ${record.stackTrace}');
+      }
+    } else {
+      debugPrint(message);
+    }
+  });
 }
 
 class MonoChatApp extends StatelessWidget {
@@ -58,18 +74,39 @@ class MonoChatApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const CupertinoApp(
-      title: 'MonoChat',
-      theme: CupertinoThemeData(
-        brightness: Brightness.light,
-        primaryColor: CupertinoColors.activeBlue,
-        scaffoldBackgroundColor: CupertinoColors.systemBackground,
-        barBackgroundColor: CupertinoColors.systemGroupedBackground,
-      ),
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      home: AuthWrapper(),
-      debugShowCheckedModeBanner: false,
+    return Consumer<ThemeController>(
+      builder: (context, themeController, child) {
+        final palette = themeController.palette;
+        return CupertinoApp(
+          title: 'MonoChat',
+          theme: CupertinoThemeData(
+            brightness: themeController.brightness,
+            primaryColor: palette.primary,
+            scaffoldBackgroundColor: palette.scaffoldBackground,
+            barBackgroundColor: palette.barBackground,
+            textTheme: CupertinoTextThemeData(
+              primaryColor: palette.primary,
+              textStyle: TextStyle(
+                color: palette.text,
+                fontFamily: '.SF Pro Text',
+                fontSize: 17,
+              ),
+            ),
+          ),
+          builder: (context, child) {
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(themeController.textScale),
+              ),
+              child: child!,
+            );
+          },
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const AuthWrapper(),
+          debugShowCheckedModeBanner: false,
+        );
+      },
     );
   }
 }
@@ -94,7 +131,7 @@ class AuthWrapper extends StatelessWidget {
   Widget _buildScreen(AuthState state) {
     switch (state) {
       case AuthState.authenticated:
-        return const RoomListScreen();
+        return const HomeScreen();
       case AuthState.unauthenticated:
         return const LoginScreen();
       case AuthState.error:
@@ -110,18 +147,26 @@ class SplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const CupertinoPageScaffold(
+    // Determine the current theme brightness to select the splash image
+    // Since AuthWrapper is inside Consumer<ThemeController>, we can just check brightness
+    final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+    final splashImage = isDark
+        ? 'assets/splash/splash_dark.png'
+        : 'assets/splash/splash_light.png';
+
+    return CupertinoPageScaffold(
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              CupertinoIcons.chat_bubble_2,
-              size: 48,
-              color: CupertinoColors.activeBlue,
+            // Responsive image sizing
+            SizedBox(
+              width: 120,
+              height: 120,
+              child: Image.asset(splashImage, fit: BoxFit.contain),
             ),
-            SizedBox(height: 16),
-            CupertinoActivityIndicator(),
+            const SizedBox(height: 24),
+            const CupertinoActivityIndicator(),
           ],
         ),
       ),

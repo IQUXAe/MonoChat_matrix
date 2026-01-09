@@ -37,4 +37,7 @@ abstract class RoomRepository {
     required String name,
     List<String> invites = const [],
   });
+
+  /// Searches for users in the user directory.
+  Future<Result<List<Profile>>> searchUsers(String query);
 }

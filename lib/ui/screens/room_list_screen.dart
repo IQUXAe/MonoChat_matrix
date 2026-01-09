@@ -1,7 +1,9 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/room_list_controller.dart';
+import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/ui/screens/chat_screen.dart';
 import 'package:monochat/ui/screens/new_chat_screen.dart';
 import 'package:monochat/ui/screens/profile_screen.dart';
@@ -19,6 +21,7 @@ class RoomListScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<RoomListController>();
     final client = context.watch<AuthController>().client;
+    final palette = context.watch<ThemeController>().palette;
 
     if (client == null || controller.isPreloading) {
       return CupertinoPageScaffold(
@@ -41,15 +44,54 @@ class RoomListScreen extends StatelessWidget {
     final rooms = controller.sortedRooms;
 
     return CupertinoPageScaffold(
-      child: CustomScrollView(
-        cacheExtent: 350,
-        slivers: [
-          CupertinoSliverNavigationBar(
-            largeTitle: Text(AppLocalizations.of(context)!.chatsTitle),
-            leading: CupertinoButton(
-              padding: EdgeInsets.zero,
-              child: const Icon(CupertinoIcons.add, size: 24),
-              onPressed: () {
+      child: Stack(
+        children: [
+          CustomScrollView(
+            cacheExtent: 350,
+            slivers: [
+              CupertinoSliverNavigationBar(
+                largeTitle: Text(AppLocalizations.of(context)!.chatsTitle),
+                trailing: CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  child: const Icon(
+                    CupertinoIcons.person_crop_circle,
+                    size: 26,
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      CupertinoPageRoute(builder: (_) => const ProfileScreen()),
+                    );
+                  },
+                ),
+                border: Border(
+                  bottom: BorderSide(
+                    color: CupertinoColors.separator.withValues(alpha: 0.3),
+                    width: 0.5,
+                  ),
+                ),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  if (index.isOdd) {
+                    return Padding(
+                      padding: const EdgeInsets.only(left: 82),
+                      child: Container(
+                        height: 0.5,
+                        color: palette.separator.withValues(alpha: 0.5),
+                      ),
+                    );
+                  }
+                  final room = rooms[index ~/ 2];
+                  return _RoomTile(key: ValueKey(room.id), room: room);
+                }, childCount: rooms.isNotEmpty ? rooms.length * 2 - 1 : 0),
+              ),
+            ],
+          ),
+          Positioned(
+            bottom: 80,
+            right: 24,
+            child: GestureDetector(
+              onTap: () {
                 Navigator.of(context).push(
                   CupertinoPageRoute(
                     fullscreenDialog: true,
@@ -57,37 +99,32 @@ class RoomListScreen extends StatelessWidget {
                   ),
                 );
               },
-            ),
-            trailing: CupertinoButton(
-              padding: EdgeInsets.zero,
-              child: const Icon(CupertinoIcons.person_crop_circle, size: 26),
-              onPressed: () {
-                Navigator.of(context).push(
-                  CupertinoPageRoute(builder: (_) => const ProfileScreen()),
-                );
-              },
-            ),
-            border: Border(
-              bottom: BorderSide(
-                color: CupertinoColors.separator.withValues(alpha: 0.3),
-                width: 0.5,
+              child: Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: palette.primary,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: CupertinoColors.black.withOpacity(0.2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                alignment: Alignment.center,
+                child: SvgPicture.asset(
+                  'assets/icons/plus.svg',
+                  colorFilter: const ColorFilter.mode(
+                    CupertinoColors.white,
+                    BlendMode.srcIn,
+                  ),
+                  width: 24,
+                  height: 24,
+                ),
               ),
             ),
-          ),
-          SliverList(
-            delegate: SliverChildBuilderDelegate((context, index) {
-              if (index.isOdd) {
-                return Padding(
-                  padding: const EdgeInsets.only(left: 82),
-                  child: Container(
-                    height: 0.5,
-                    color: CupertinoColors.separator.withValues(alpha: 0.5),
-                  ),
-                );
-              }
-              final room = rooms[index ~/ 2];
-              return _RoomTile(key: ValueKey(room.id), room: room);
-            }, childCount: rooms.isNotEmpty ? rooms.length * 2 - 1 : 0),
           ),
         ],
       ),
@@ -138,13 +175,16 @@ class _RoomTileState extends State<_RoomTile> {
       // Filter updates to only this room to avoid unnecessary rebuilds.
       // This maintains "Best Practice" performance while ensuring the "instant"
       // update behavior the user desires for the specific chat events.
+      final roomUpdate = syncUpdate.rooms?.join?[roomId];
       final bool hasRelevantUpdate =
-          (syncUpdate.rooms?.join?.containsKey(roomId) ?? false) ||
+          (roomUpdate != null &&
+              (roomUpdate.timeline != null ||
+                  roomUpdate.state != null ||
+                  roomUpdate.ephemeral != null ||
+                  roomUpdate.accountData != null ||
+                  roomUpdate.unreadNotifications != null)) ||
           (syncUpdate.rooms?.invite?.containsKey(roomId) ?? false) ||
-          (syncUpdate.rooms?.leave?.containsKey(roomId) ?? false) ||
-          // Also check ephemeral for typing/read receipts if needed later,
-          // but for now join/invite/leave covers messages/counts.
-          false;
+          (syncUpdate.rooms?.leave?.containsKey(roomId) ?? false);
 
       if (hasRelevantUpdate && mounted) {
         setState(() {});
@@ -157,14 +197,76 @@ class _RoomTileState extends State<_RoomTile> {
     _subscription = null;
   }
 
+  String _getMessagePreview(Event? event, Room room) {
+    if (event == null) return 'No messages';
+
+    final isMe = event.senderId == room.client.userID;
+    final senderPrefix = isMe ? 'You: ' : '';
+
+    // Handle different message types
+    switch (event.messageType) {
+      case MessageTypes.Image:
+        return '$senderPrefix📷 Photo';
+      case MessageTypes.Video:
+        return '$senderPrefix🎬 Video';
+      case MessageTypes.Audio:
+        return '$senderPrefix🎵 Audio';
+      case MessageTypes.File:
+        return '$senderPrefix📎 File';
+      case MessageTypes.Sticker:
+        return '$senderPrefix🌟 Sticker';
+      case MessageTypes.Location:
+        return '$senderPrefix📍 Location';
+      default:
+        break;
+    }
+
+    // For text messages, clean up reply format
+    var body = event.body;
+
+    // Remove Matrix reply format (> <@user:server> message\n\n)
+    if (body.startsWith('> <@')) {
+      final newlineIndex = body.indexOf('\n\n');
+      if (newlineIndex != -1 && newlineIndex < body.length - 2) {
+        body = body.substring(newlineIndex + 2);
+      }
+    }
+
+    // Remove m.relates_to reply indicator
+    if (body.startsWith('> ')) {
+      final lines = body.split('\n');
+      // Skip lines starting with > and empty line after
+      var startIndex = 0;
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('> ') || lines[i].isEmpty) {
+          startIndex = i + 1;
+        } else {
+          break;
+        }
+      }
+      if (startIndex < lines.length) {
+        body = lines.sublist(startIndex).join('\n');
+      }
+    }
+
+    return '$senderPrefix$body';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final palette = context.watch<ThemeController>().palette;
     final lastEvent = widget.room.lastEvent;
 
-    // FluffyChat Logic:
+    // FluffyChat Logic + Fix for self-messages
     // 1. isUnread includes notificationCount > 0 OR markedUnread
-    final bool isUnread = widget.room.isUnread;
-    final int count = widget.room.notificationCount;
+    // 2. Override if the last message is sent by me
+    bool isUnread = widget.room.isUnread;
+    int count = widget.room.notificationCount;
+
+    if (lastEvent?.senderId == widget.room.client.userID) {
+      isUnread = false;
+      count = 0;
+    }
 
     final timeStr = lastEvent != null
         ? DateFormat('HH:mm').format(lastEvent.originServerTs)
@@ -198,8 +300,8 @@ class _RoomTileState extends State<_RoomTile> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 100),
         color: _isPressed
-            ? CupertinoColors.systemGrey4.withValues(alpha: 0.5)
-            : CupertinoColors.systemBackground,
+            ? palette.inputBackground.withValues(alpha: 0.5)
+            : palette.scaffoldBackground,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
@@ -208,6 +310,8 @@ class _RoomTileState extends State<_RoomTile> {
               name: widget.room.getLocalizedDisplayname(),
               client: widget.room.client,
               size: 58,
+              userId:
+                  widget.room.directChatMatrixID, // Show online status for DMs
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -220,11 +324,11 @@ class _RoomTileState extends State<_RoomTile> {
                       Flexible(
                         child: Text(
                           widget.room.getLocalizedDisplayname(),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 17,
                             letterSpacing: -0.4,
-                            color: CupertinoColors.label,
+                            color: palette.text,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -235,8 +339,8 @@ class _RoomTileState extends State<_RoomTile> {
                         style: TextStyle(
                           fontSize: 14,
                           color: isUnread
-                              ? CupertinoColors.activeBlue
-                              : CupertinoColors.secondaryLabel,
+                              ? palette.primary
+                              : palette.secondaryText,
                         ),
                       ),
                     ],
@@ -246,12 +350,12 @@ class _RoomTileState extends State<_RoomTile> {
                     children: [
                       Expanded(
                         child: Text(
-                          lastEvent?.body ?? 'No messages',
+                          _getMessagePreview(lastEvent, widget.room),
                           style: TextStyle(
                             fontSize: 15,
                             color: isUnread
-                                ? CupertinoColors.label
-                                : CupertinoColors.secondaryLabel,
+                                ? palette.text
+                                : palette.secondaryText,
                             fontWeight: isUnread
                                 ? FontWeight.w600
                                 : FontWeight.normal,
@@ -271,7 +375,7 @@ class _RoomTileState extends State<_RoomTile> {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: CupertinoColors.activeBlue,
+                            color: palette.primary,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           constraints: const BoxConstraints(minWidth: 24),
@@ -292,8 +396,8 @@ class _RoomTileState extends State<_RoomTile> {
                           margin: const EdgeInsets.only(left: 8),
                           width: 12,
                           height: 12,
-                          decoration: const BoxDecoration(
-                            color: CupertinoColors.activeBlue,
+                          decoration: BoxDecoration(
+                            color: palette.primary,
                             shape: BoxShape.circle,
                           ),
                         ),

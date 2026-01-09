@@ -1,76 +1,190 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-import 'package:matrix/matrix.dart';
-import 'package:logging/logging.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:logging/logging.dart';
+import 'package:matrix/matrix.dart';
 import 'package:mime/mime.dart';
 
 import '../domain/repositories/chat_repository.dart';
 import '../utils/image_compressor.dart';
 
-// Top-level function for compute
+// =============================================================================
+// ISOLATE FUNCTIONS
+// =============================================================================
+
+/// Reads file bytes in isolate for non-blocking IO.
 Future<Uint8List> _readBytes(String path) async {
   return File(path).readAsBytes();
 }
 
-// Compress image in isolate
+/// Compresses image in isolate.
 Future<CompressedImage?> _compressImageIsolate(Uint8List bytes) async {
   return compressImage(bytes, maxDimension: 1600, quality: 85);
 }
 
+// =============================================================================
+// CHAT CONTROLLER
+// =============================================================================
+
 /// Controller for individual chat screens.
 ///
-/// Handles message sending, file attachments, typing indicators,
-/// and read receipts. Uses [ChatRepository] for actual Matrix operations.
+/// Manages all chat-related functionality:
+/// - Message composition and sending (text, files, replies)
+/// - File attachments with compression
+/// - Typing indicators
+/// - Read receipts (using Timeline like FluffyChat)
+/// - Drag-and-drop file handling
+///
+/// Uses [ChatRepository] for Matrix operations and maintains a [Timeline]
+/// instance for proper read marker state management.
 class ChatController extends ChangeNotifier {
+  // ===========================================================================
+  // DEPENDENCIES & CONFIGURATION
+  // ===========================================================================
+
+  /// The Matrix room this controller manages.
   final Room room;
+
+  /// Repository for Matrix operations.
   final ChatRepository _chatRepository;
+
+  /// Logger instance.
   static final Logger _log = Logger('ChatController');
 
+  /// Convenience getter for the Matrix client.
   Client get client => room.client;
 
+  // ===========================================================================
+  // TIMELINE STATE
+  // ===========================================================================
+
+  /// Timeline instance for message history and read markers.
+  ///
+  /// Using Timeline.setReadMarker() instead of Room.setReadMarker()
+  /// ensures immediate local state updates (like FluffyChat does).
+  Timeline? timeline;
+
+  /// Future tracking timeline loading.
+  Future<void>? loadTimelineFuture;
+
+  // ===========================================================================
+  // MESSAGE COMPOSITION STATE
+  // ===========================================================================
+
+  /// Event being replied to.
   Event? _replyingTo;
   Event? get replyingTo => _replyingTo;
 
-  String? _lastReadEventId;
-  DateTime? _lastTypingTime;
-  Timer? _typingTimer;
-  StreamSubscription? _syncSubscription;
-
-  bool _isDragging = false;
-  bool get isDragging => _isDragging;
-
-  final List<String> _processingFiles = [];
-  List<String> get processingFiles => List.unmodifiable(_processingFiles);
-
+  /// Files queued for sending.
   final List<XFile> _attachmentDrafts = [];
   List<XFile> get attachmentDrafts => List.unmodifiable(_attachmentDrafts);
 
-  ChatController({required this.room, required ChatRepository chatRepository})
-    : _chatRepository = chatRepository {
-    _init();
+  /// Files currently being uploaded.
+  final List<String> _processingFiles = [];
+  List<String> get processingFiles => List.unmodifiable(_processingFiles);
+
+  // ===========================================================================
+  // UI STATE
+  // ===========================================================================
+
+  /// Whether files are being dragged over the chat.
+  bool _isDragging = false;
+  bool get isDragging => _isDragging;
+
+  /// Whether user has scrolled up from the bottom.
+  bool _scrolledUp = false;
+
+  // ===========================================================================
+  // INTERNAL STATE
+  // ===========================================================================
+
+  DateTime? _lastTypingTime;
+  Timer? _typingTimer;
+  StreamSubscription<SyncUpdate>? _syncSubscription;
+  Future<void>? _setReadMarkerFuture;
+
+  // ===========================================================================
+  // SELECTION STATE
+  // ===========================================================================
+
+  final Set<String> _selectedEventIds = {};
+  bool get isSelectionMode => _selectedEventIds.isNotEmpty;
+  Set<String> get selectedEventIds => Set.unmodifiable(_selectedEventIds);
+
+  void toggleSelection(String eventId) {
+    if (_selectedEventIds.contains(eventId)) {
+      _selectedEventIds.remove(eventId);
+    } else {
+      _selectedEventIds.add(eventId);
+    }
+    notifyListeners();
   }
 
-  void _init() {
-    markAsRead();
+  void clearSelection() {
+    _selectedEventIds.clear();
+    notifyListeners();
+  }
 
-    // Listen to sync to update read markers
+  // ===========================================================================
+  // LIFECYCLE
+  // ===========================================================================
+
+  /// Creates a chat controller for the given room.
+  ChatController({required this.room, required ChatRepository chatRepository})
+    : _chatRepository = chatRepository {
+    _initialize();
+  }
+
+  void _initialize() {
+    loadTimelineFuture = _loadTimeline();
+
     _syncSubscription = client.onSync.stream.listen((_) {
-      markAsRead();
+      setReadMarker();
       notifyListeners();
     });
   }
 
+  Future<void> _loadTimeline() async {
+    try {
+      timeline = await room.getTimeline(onUpdate: _onTimelineUpdate);
+
+      // Clear manual unread flag when entering room
+      if (room.markedUnread) {
+        room.markUnread(false);
+      }
+
+      setReadMarker();
+      notifyListeners();
+    } catch (e, s) {
+      _log.warning('Failed to load timeline', e, s);
+    }
+  }
+
+  void _onTimelineUpdate() {
+    if (!_scrolledUp) {
+      setReadMarker();
+    }
+    notifyListeners();
+  }
+
   @override
   void dispose() {
+    timeline?.cancelSubscriptions();
+    timeline = null;
     _syncSubscription?.cancel();
     _typingTimer?.cancel();
     super.dispose();
   }
 
+  // ===========================================================================
+  // DRAG & DROP
+  // ===========================================================================
+
+  /// Updates drag state for visual feedback.
   void setDragging(bool dragging) {
     if (_isDragging != dragging) {
       _isDragging = dragging;
@@ -78,40 +192,12 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  void _addToProcessing(String name) {
-    _processingFiles.add(name);
-    notifyListeners();
-  }
-
-  void _removeFromProcessing(String name) {
-    _processingFiles.remove(name);
-    notifyListeners();
-  }
-
-  // --- Draft Handling ---
-
-  void addAttachment(XFile file) {
-    _attachmentDrafts.add(file);
-    notifyListeners();
-  }
-
-  void removeAttachment(XFile file) {
-    _attachmentDrafts.remove(file);
-    notifyListeners();
-  }
-
-  void clearAttachments() {
-    _attachmentDrafts.clear();
-    notifyListeners();
-  }
-
-  // --- Drop Handling ---
-
+  /// Handles dropped files, filtering out directories.
   Future<void> handleDrop(List<XFile> files) async {
     setDragging(false);
 
     for (final file in files) {
-      if (await _isDirectory(file.path)) {
+      if (await FileSystemEntity.isDirectory(file.path)) {
         _log.fine('Skipping directory: ${file.path}');
         continue;
       }
@@ -119,18 +205,55 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  Future<bool> _isDirectory(String path) async {
-    return FileSystemEntity.isDirectory(path);
+  // ===========================================================================
+  // ATTACHMENTS
+  // ===========================================================================
+
+  /// Adds a file to the attachment queue.
+  void addAttachment(XFile file) {
+    _attachmentDrafts.add(file);
+    notifyListeners();
   }
 
+  /// Removes a file from the attachment queue.
+  void removeAttachment(XFile file) {
+    _attachmentDrafts.remove(file);
+    notifyListeners();
+  }
+
+  /// Clears all queued attachments.
+  void clearAttachments() {
+    _attachmentDrafts.clear();
+    notifyListeners();
+  }
+
+  /// Convenience method for file picker callbacks.
+  void attachFile(XFile file) => addAttachment(file);
+
+  /// Convenience method for platform file picker.
+  void attachFileFromPlatform(PlatformFile file) {
+    if (file.path != null) {
+      addAttachment(XFile(file.path!, name: file.name));
+    }
+  }
+
+  // ===========================================================================
+  // REPLY
+  // ===========================================================================
+
+  /// Sets the event to reply to.
   void setReplyTo(Event? event) {
     _replyingTo = event;
     notifyListeners();
   }
 
-  // --- Sending ---
+  // ===========================================================================
+  // SENDING MESSAGES
+  // ===========================================================================
 
-  /// Send a text message, optionally with draft attachments
+  /// Sends a text message with any queued attachments.
+  ///
+  /// Clears UI state immediately for responsive feedback.
   Future<void> sendMessage(String text) async {
     final hasAttachments = _attachmentDrafts.isNotEmpty;
     if (text.trim().isEmpty && !hasAttachments) return;
@@ -138,17 +261,17 @@ class ChatController extends ChangeNotifier {
     final replyTo = _replyingTo;
     final attachmentsToSend = List<XFile>.from(_attachmentDrafts);
 
-    // Clear UI state immediately
+    // Clear UI state immediately for responsiveness
     _replyingTo = null;
     _attachmentDrafts.clear();
     notifyListeners();
 
-    // Send files with default compression
+    // Send attachments first
     if (attachmentsToSend.isNotEmpty) {
       await sendFiles(attachmentsToSend, compress: true, replyTo: replyTo);
     }
 
-    // Send text after files
+    // Send text (only first message is a reply if there were attachments)
     if (text.trim().isNotEmpty) {
       await _chatRepository.sendTextMessage(
         room: room,
@@ -158,107 +281,32 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  /// Send files with optional compression
+  /// Sends files with optional compression.
   ///
-  /// This is called by the SendFileDialog or directly for quick sends.
-  /// [compress] - if true, images will be resized to max 1600px
-  /// [replyTo] - optional event to reply to
+  /// Images (except GIFs) larger than 20KB are compressed to max 1600px.
   Future<void> sendFiles(
     List<XFile> files, {
     bool compress = true,
     Event? replyTo,
   }) async {
-    final List<({Uri uri, String name, String? mime, int size})>
-    uploadedAssets = [];
+    final uploadedAssets = <_UploadedAsset>[];
 
-    // 1. Upload Phase
+    // Phase 1: Upload files
     for (final file in files) {
-      _addToProcessing(file.name);
-      try {
-        final mime = lookupMimeType(file.path);
-        var uploadMime = mime;
-        Uint8List? uploadBytes;
-        String? uploadPath = file.path;
-        int uploadSize = 0;
-
-        // Compress images before upload (except GIFs) if enabled
-        if (compress &&
-            mime != null &&
-            mime.startsWith('image/') &&
-            !mime.contains('gif')) {
-          // Only read bytes if we intend to compress
-          final originalBytes = await compute(_readBytes, file.path);
-          if (originalBytes.length > 20000) {
-            _log.fine('Compressing image: ${file.name}');
-            final compressed = await _compressImageIsolate(originalBytes);
-            if (compressed != null) {
-              uploadBytes = compressed.bytes;
-              uploadMime = compressed.mimeType;
-              uploadSize = compressed.bytes.length;
-              _log.fine('Compressed: ${file.name} to $uploadSize bytes');
-              uploadPath = null; // Use bytes, not path
-            }
-          }
-        }
-
-        // If uploadSize is still 0 (no compression or failed), estimate from file
-        if (uploadSize == 0) {
-          uploadSize = await File(file.path).length();
-        }
-
-        // Upload via repository
-        // Pass path if we didn't compress, pass bytes if we did
-        final result = await _chatRepository.uploadContent(
-          bytes: uploadBytes,
-          filename: file.name,
-          contentType: uploadMime,
-          filePath: uploadPath,
-        );
-
-        result.fold(
-          (uri) {
-            uploadedAssets.add((
-              uri: uri,
-              name: file.name,
-              mime: uploadMime,
-              size: uploadSize,
-            ));
-          },
-          (exception) {
-            _log.severe(
-              'Failed to upload file attachment: ${file.name}',
-              exception,
-            );
-          },
-        );
-      } catch (e, s) {
-        _log.severe('Failed to upload file attachment: ${file.name}', e, s);
-      } finally {
-        _removeFromProcessing(file.name);
+      final asset = await _uploadFile(file, compress: compress);
+      if (asset != null) {
+        uploadedAssets.add(asset);
       }
     }
 
-    // 2. Send file events
-    Event? replyEventUsed = replyTo;
-
+    // Phase 2: Send file events
+    var replyEventUsed = replyTo;
     for (final asset in uploadedAssets) {
-      // Determine MsgType based on mime
-      String msgType = MessageTypes.File;
-      if (asset.mime != null) {
-        if (asset.mime!.startsWith('image/')) {
-          msgType = MessageTypes.Image;
-        } else if (asset.mime!.startsWith('video/')) {
-          msgType = MessageTypes.Video;
-        } else if (asset.mime!.startsWith('audio/')) {
-          msgType = MessageTypes.Audio;
-        }
-      }
-
       final result = await _chatRepository.sendFileMessage(
         room: room,
         mxcUri: asset.uri,
         filename: asset.name,
-        msgType: msgType,
+        msgType: asset.msgType,
         size: asset.size,
         mimeType: asset.mime,
         inReplyTo: replyEventUsed,
@@ -271,44 +319,199 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  // Stubs for picker callbacks to just add to draft
-  void attachFile(XFile file) => addAttachment(file);
+  Future<_UploadedAsset?> _uploadFile(
+    XFile file, {
+    required bool compress,
+  }) async {
+    _addToProcessing(file.name);
 
-  void attachFileFromPlatform(PlatformFile file) {
-    if (file.path != null) {
-      addAttachment(XFile(file.path!, name: file.name));
+    try {
+      final mime = lookupMimeType(file.path);
+      var uploadMime = mime;
+      Uint8List? uploadBytes;
+      String? uploadPath = file.path;
+      var uploadSize = 0;
+
+      // Compress images if enabled (except GIFs)
+      if (compress && _shouldCompress(mime)) {
+        final originalBytes = await compute(_readBytes, file.path);
+        if (originalBytes.length > 20000) {
+          _log.fine('Compressing: ${file.name}');
+          final compressed = await _compressImageIsolate(originalBytes);
+          if (compressed != null) {
+            uploadBytes = compressed.bytes;
+            uploadMime = compressed.mimeType;
+            uploadSize = compressed.bytes.length;
+            uploadPath = null;
+          }
+        }
+      }
+
+      // Get file size if not compressed
+      if (uploadSize == 0) {
+        uploadSize = await File(file.path).length();
+      }
+
+      // Upload
+      final result = await _chatRepository.uploadContent(
+        bytes: uploadBytes,
+        filename: file.name,
+        contentType: uploadMime,
+        filePath: uploadPath,
+      );
+
+      return result.fold(
+        (uri) => _UploadedAsset(
+          uri: uri,
+          name: file.name,
+          mime: uploadMime,
+          size: uploadSize,
+        ),
+        (e) {
+          _log.severe('Upload failed: ${file.name}', e);
+          return null;
+        },
+      );
+    } catch (e, s) {
+      _log.severe('Upload error: ${file.name}', e, s);
+      return null;
+    } finally {
+      _removeFromProcessing(file.name);
     }
   }
 
+  bool _shouldCompress(String? mime) {
+    return mime != null && mime.startsWith('image/') && !mime.contains('gif');
+  }
+
+  void _addToProcessing(String name) {
+    _processingFiles.add(name);
+    notifyListeners();
+  }
+
+  void _removeFromProcessing(String name) {
+    _processingFiles.remove(name);
+    notifyListeners();
+  }
+
+  // ===========================================================================
+  // TYPING INDICATOR
+  // ===========================================================================
+
+  /// Updates typing indicator with debouncing.
   void updateTyping(bool isTyping) {
     final now = DateTime.now();
-    if (_lastTypingTime != null &&
+    final shouldThrottle =
+        _lastTypingTime != null &&
         now.difference(_lastTypingTime!) < const Duration(milliseconds: 1000) &&
-        isTyping) {
-      return;
-    }
+        isTyping;
+
+    if (shouldThrottle) return;
 
     _lastTypingTime = now;
     _chatRepository.setTyping(room, isTyping);
   }
 
-  void markAsRead() async {
-    if (room.membership != Membership.join) return;
+  // ===========================================================================
+  // READ MARKERS
+  // ===========================================================================
 
-    final lastEventId = room.lastEvent?.eventId;
-    if (lastEventId == null ||
-        lastEventId.startsWith('m-') || // Local echo or special
-        lastEventId.startsWith('MonoChat') ||
-        lastEventId == _lastReadEventId) {
+  /// Updates scroll position state.
+  void setScrolledUp(bool isScrolledUp) {
+    _scrolledUp = isScrolledUp;
+    if (!_scrolledUp) {
+      setReadMarker();
+    }
+  }
+
+  /// Sets read marker using Timeline (like FluffyChat).
+  ///
+  /// Timeline.setReadMarker updates local state immediately,
+  /// unlike Room.setReadMarker which waits for sync.
+  void setReadMarker({String? eventId}) {
+    if (_setReadMarkerFuture != null) return;
+    if (_scrolledUp) return;
+    if (eventId == null &&
+        !room.hasNewMessages &&
+        room.notificationCount == 0) {
       return;
     }
 
-    _lastReadEventId = lastEventId;
+    // Don't send markers when app is in background
+    if (!kIsWeb &&
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
 
-    final result = await _chatRepository.markAsRead(room, lastEventId);
-    result.fold(
-      (_) {}, // Success - nothing to do
-      (e) => _log.warning('Failed to set read marker', e),
-    );
+    final tl = timeline;
+    if (tl == null || tl.events.isEmpty) return;
+
+    _log.fine('Setting read marker...');
+
+    _setReadMarkerFuture = tl
+        .setReadMarker(eventId: eventId)
+        .then((_) {
+          _setReadMarkerFuture = null;
+          _log.fine('Read marker set');
+        })
+        .catchError((Object e) {
+          _setReadMarkerFuture = null;
+          _log.warning('Read marker failed', e);
+        });
+  }
+
+  /// Forces read marker to be set (for exit scenarios).
+  Future<void> forceSetReadMarker() async {
+    final tl = timeline;
+
+    if (tl == null || tl.events.isEmpty) {
+      // Fallback to room.setReadMarker
+      final lastEventId = room.lastEvent?.eventId;
+      if (lastEventId != null) {
+        try {
+          await room.setReadMarker(lastEventId);
+          room.notificationCount = 0;
+          room.highlightCount = 0;
+        } catch (e) {
+          _log.warning('Force read marker failed', e);
+        }
+      }
+      return;
+    }
+
+    try {
+      await tl.setReadMarker();
+      _log.fine('Force read marker set');
+    } catch (e) {
+      _log.warning('Force read marker failed', e);
+    }
+  }
+}
+
+// =============================================================================
+// HELPER TYPES
+// =============================================================================
+
+/// Represents an uploaded file asset.
+class _UploadedAsset {
+  final Uri uri;
+  final String name;
+  final String? mime;
+  final int size;
+
+  const _UploadedAsset({
+    required this.uri,
+    required this.name,
+    required this.mime,
+    required this.size,
+  });
+
+  /// Determines message type based on MIME type.
+  String get msgType {
+    if (mime == null) return MessageTypes.File;
+    if (mime!.startsWith('image/')) return MessageTypes.Image;
+    if (mime!.startsWith('video/')) return MessageTypes.Video;
+    if (mime!.startsWith('audio/')) return MessageTypes.Audio;
+    return MessageTypes.File;
   }
 }

@@ -138,4 +138,57 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get compressDescription => 'Уменьшить размер для быстрой отправки';
+
+  @override
+  String get settings => 'Настройки';
+
+  @override
+  String get profile => 'Профиль';
+
+  @override
+  String get unknownUser => 'Неизвестный пользователь';
+
+  @override
+  String get startConversation => 'Начать чат';
+
+  @override
+  String get sendMessage => 'Написать';
+
+  @override
+  String get ignoreUser => 'Игнорировать';
+
+  @override
+  String ignoreUserConfirmation(String userName) {
+    return 'Вы уверены, что хотите игнорировать $userName? Вы больше не будете видеть сообщения от этого пользователя.';
+  }
+
+  @override
+  String get ignore => 'Игнорировать';
+
+  @override
+  String get close => 'Закрыть';
+
+  @override
+  String get online => 'В сети';
+
+  @override
+  String get offline => 'Не в сети';
+
+  @override
+  String get justNow => 'Только что';
+
+  @override
+  String lastSeenMinutesAgo(int minutes) {
+    return 'Был(а) $minutes мин назад';
+  }
+
+  @override
+  String lastSeenHoursAgo(int hours) {
+    return 'Был(а) $hoursч назад';
+  }
+
+  @override
+  String lastSeenAt(String date) {
+    return 'Был(а) $date';
+  }
 }

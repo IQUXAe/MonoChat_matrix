@@ -138,4 +138,57 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get compressDescription => 'Reduce file size for faster sending';
+
+  @override
+  String get settings => 'Settings';
+
+  @override
+  String get profile => 'Profile';
+
+  @override
+  String get unknownUser => 'Unknown User';
+
+  @override
+  String get startConversation => 'Start Conversation';
+
+  @override
+  String get sendMessage => 'Send Message';
+
+  @override
+  String get ignoreUser => 'Ignore User';
+
+  @override
+  String ignoreUserConfirmation(String userName) {
+    return 'Are you sure you want to ignore $userName? You will no longer see messages from this user.';
+  }
+
+  @override
+  String get ignore => 'Ignore';
+
+  @override
+  String get close => 'Close';
+
+  @override
+  String get online => 'Online';
+
+  @override
+  String get offline => 'Offline';
+
+  @override
+  String get justNow => 'Just now';
+
+  @override
+  String lastSeenMinutesAgo(int minutes) {
+    return 'Last seen $minutes min ago';
+  }
+
+  @override
+  String lastSeenHoursAgo(int hours) {
+    return 'Last seen ${hours}h ago';
+  }
+
+  @override
+  String lastSeenAt(String date) {
+    return 'Last seen $date';
+  }
 }

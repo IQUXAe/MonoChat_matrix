@@ -5,7 +5,7 @@ import 'package:matrix/matrix.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:monochat/utils/client_download_extension.dart';
+// import 'package:monochat/utils/client_download_extension.dart';
 import 'package:monochat/ui/widgets/mxc_image.dart';
 
 class VideoBubble extends StatefulWidget {
@@ -46,19 +46,25 @@ class _VideoBubbleState extends State<VideoBubble> {
     });
 
     try {
-      // 1. Get the video file
-      // We need to download it to a temporary file to play it with video_player
-      // (Unless we can play from network URL directly, which works for mxc:// converted to http)
+      // 1. Download and Decrypt (if needed)
+      // This helper handles both encrypted (file) and unencrypted (url) events correctly.
+      final matrixFile = await widget.event.downloadAndDecryptAttachment();
 
-      final url = await widget.event.content
-          .tryGet<String>('url')
-          ?.getDownloadUri(widget.client);
+      // 2. Write to Temp File
+      // Video players usually need a file path, they struggle with raw bytes or custom streams.
+      final tempDir = await getTemporaryDirectory();
+      final filename =
+          widget.event.content.tryGet<String>('body') ?? 'video.mp4';
+      // Sanitize filename
+      final safeFilename = filename.replaceAll(RegExp(r'[^\w\s\.-]'), '');
+      final file = File(
+        '${tempDir.path}/${widget.event.eventId}_$safeFilename',
+      );
 
-      if (url == null) {
-        throw Exception('Could not resolve video URL');
-      }
+      await file.writeAsBytes(matrixFile.bytes);
 
-      _videoPlayerController = VideoPlayerController.networkUrl(url);
+      // 3. Initialize Player
+      _videoPlayerController = VideoPlayerController.file(file);
       await _videoPlayerController!.initialize();
 
       _chewieController = ChewieController(
@@ -69,7 +75,6 @@ class _VideoBubbleState extends State<VideoBubble> {
         allowFullScreen: true,
         allowMuting: true,
         showControls: true,
-        // iOS style controls
         cupertinoProgressColors: ChewieProgressColors(
           playedColor: CupertinoColors.activeBlue,
           handleColor: CupertinoColors.activeBlue,
@@ -77,7 +82,6 @@ class _VideoBubbleState extends State<VideoBubble> {
           bufferedColor: CupertinoColors.systemGrey3,
         ),
         materialProgressColors: ChewieProgressColors(
-          // Fallback
           playedColor: CupertinoColors.activeBlue,
           handleColor: CupertinoColors.activeBlue,
           backgroundColor: CupertinoColors.systemGrey,
@@ -85,6 +89,14 @@ class _VideoBubbleState extends State<VideoBubble> {
         ),
         placeholder: const Center(child: CupertinoActivityIndicator()),
         autoInitialize: true,
+        errorBuilder: (context, errorMessage) {
+          return Center(
+            child: Text(
+              errorMessage,
+              style: const TextStyle(color: Colors.white),
+            ),
+          );
+        },
       );
 
       if (mounted) {
@@ -149,8 +161,7 @@ class _VideoBubbleState extends State<VideoBubble> {
     if (_isInitializing) {
       return Container(
         width: width,
-        height: height,
-        color: Colors.black12,
+        color: CupertinoColors.systemGrey6.resolveFrom(context),
         alignment: Alignment.center,
         child: const CupertinoActivityIndicator(),
       );
@@ -160,7 +171,7 @@ class _VideoBubbleState extends State<VideoBubble> {
       return Container(
         width: width,
         height: height,
-        color: Colors.black12,
+        color: CupertinoColors.systemGrey6.resolveFrom(context),
         alignment: Alignment.center,
         child: const Icon(
           CupertinoIcons.exclamationmark_triangle,
@@ -184,7 +195,10 @@ class _VideoBubbleState extends State<VideoBubble> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Container(color: Colors.black26),
+                  Container(
+                    color: CupertinoColors.secondarySystemBackground
+                        .resolveFrom(context),
+                  ),
                   if ((widget.event.content['info'] as Map?)?['thumbnail_url']
                       is String)
                     MxcImage(

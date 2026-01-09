@@ -5,6 +5,8 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   desktop_drop
+  desktop_webview_window
+  emoji_picker_flutter
   file_selector_windows
   flutter_secure_storage_windows
   gal
@@ -12,6 +14,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   record_windows
   share_plus
   url_launcher_windows
+  window_to_front
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

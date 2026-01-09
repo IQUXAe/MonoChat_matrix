@@ -145,5 +145,55 @@
     "compress": "Compress",
     "@compress": { "description": "Compression toggle label" },
     "compressDescription": "Reduce file size for faster sending",
-    "@compressDescription": { "description": "Compression toggle description" }
+    "@compressDescription": { "description": "Compression toggle description" },
+    "settings": "Settings",
+    "@settings": { "description": "Settings screen title" },
+    "profile": "Profile",
+    "@profile": { "description": "Profile screen title" },
+    "unknownUser": "Unknown User",
+    "@unknownUser": { "description": "Fallback for unknown user" },
+    "startConversation": "Start Conversation",
+    "@startConversation": { "description": "Button to start new chat" },
+    "sendMessage": "Send Message",
+    "@sendMessage": { "description": "Button to send message to existing chat" },
+    "ignoreUser": "Ignore User",
+    "@ignoreUser": { "description": "Action to ignore user" },
+    "ignoreUserConfirmation": "Are you sure you want to ignore {userName}? You will no longer see messages from this user.",
+    "@ignoreUserConfirmation": {
+        "description": "Confirmation for ignoring user",
+        "placeholders": {
+            "userName": { "type": "String" }
+        }
+    },
+    "ignore": "Ignore",
+    "@ignore": { "description": "Confirm ignore action" },
+    "close": "Close",
+    "@close": { "description": "Close button" },
+    "online": "Online",
+    "@online": { "description": "User is online" },
+    "offline": "Offline",
+    "@offline": { "description": "User is offline" },
+    "justNow": "Just now",
+    "@justNow": { "description": "User was active just now" },
+    "lastSeenMinutesAgo": "Last seen {minutes} min ago",
+    "@lastSeenMinutesAgo": {
+        "description": "Last seen minutes ago",
+        "placeholders": {
+            "minutes": { "type": "int" }
+        }
+    },
+    "lastSeenHoursAgo": "Last seen {hours}h ago",
+    "@lastSeenHoursAgo": {
+        "description": "Last seen hours ago",
+        "placeholders": {
+            "hours": { "type": "int" }
+        }
+    },
+    "lastSeenAt": "Last seen {date}",
+    "@lastSeenAt": {
+        "description": "Last seen at date",
+        "placeholders": {
+            "date": { "type": "String" }
+        }
+    }
 }

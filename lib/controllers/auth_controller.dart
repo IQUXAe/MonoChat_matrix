@@ -1,21 +1,55 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:matrix/matrix.dart';
 import 'package:logging/logging.dart';
+import 'package:matrix/matrix.dart';
 
 import '../core/exceptions/app_exception.dart';
 import '../domain/repositories/auth_repository.dart';
 
-enum AuthState { initializing, unauthenticated, authenticated, error }
+// =============================================================================
+// AUTH STATE
+// =============================================================================
+
+/// Represents the authentication state of the app.
+enum AuthState {
+  /// Initial state while checking for existing session.
+  initializing,
+
+  /// No valid session found.
+  unauthenticated,
+
+  /// User is logged in.
+  authenticated,
+
+  /// An error occurred during initialization.
+  error,
+}
+
+// =============================================================================
+// AUTH CONTROLLER
+// =============================================================================
 
 /// Controller for authentication state and operations.
+///
+/// Manages user authentication lifecycle:
+/// - Session initialization and restoration
+/// - Login/logout operations
+/// - Authentication state changes
 ///
 /// Uses [AuthRepository] abstraction for better testability
 /// and separation from Matrix SDK implementation details.
 class AuthController extends ChangeNotifier {
+  // ===========================================================================
+  // DEPENDENCIES
+  // ===========================================================================
+
   final AuthRepository _authRepository;
   static final Logger _log = Logger('AuthController');
+
+  // ===========================================================================
+  // STATE
+  // ===========================================================================
 
   AuthState _state = AuthState.initializing;
   AuthState get state => _state;
@@ -23,9 +57,18 @@ class AuthController extends ChangeNotifier {
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
 
+  /// The Matrix client, if initialized.
   Client? get client => _authRepository.client;
 
+  // ===========================================================================
+  // INTERNAL
+  // ===========================================================================
+
   StreamSubscription<LoginState>? _loginStateSubscription;
+
+  // ===========================================================================
+  // LIFECYCLE
+  // ===========================================================================
 
   AuthController(this._authRepository) {
     _init();
@@ -37,25 +80,19 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _log.info("Starting Matrix initialization...");
+      _log.info('Starting Matrix initialization...');
 
       final result = await _authRepository.initialize();
-
-      result.fold(
-        (_) {
-          // Success - continue with setup
-        },
-        (exception) {
-          throw exception;
-        },
-      );
+      result.fold((_) {
+        // Success - continue with setup
+      }, (exception) => throw exception);
 
       // Listen for login state changes
       _loginStateSubscription?.cancel();
       _loginStateSubscription = _authRepository.loginStateStream.listen((
         loginState,
       ) {
-        _log.info("Login state change detected: $loginState");
+        _log.info('Login state change detected: $loginState');
         if (loginState == LoginState.loggedIn) {
           _state = AuthState.authenticated;
         } else if (loginState == LoginState.loggedOut) {
@@ -65,16 +102,16 @@ class AuthController extends ChangeNotifier {
       });
 
       if (_authRepository.isLoggedIn) {
-        _log.info("Session found.");
+        _log.info('Session found.');
         _state = AuthState.authenticated;
       } else {
-        _log.info("No session found.");
+        _log.info('No session found.');
         _state = AuthState.unauthenticated;
       }
     } catch (e, s) {
       _state = AuthState.error;
       _errorMessage = e is AppException ? e.userMessage : e.toString();
-      _log.severe("Init Error", e, s);
+      _log.severe('Init Error', e, s);
     } finally {
       notifyListeners();
     }
@@ -86,10 +123,18 @@ class AuthController extends ChangeNotifier {
     super.dispose();
   }
 
+  // ===========================================================================
+  // PUBLIC API
+  // ===========================================================================
+
+  /// Retries initialization after an error.
   Future<void> retry() async {
     await _init();
   }
 
+  /// Logs in with the provided credentials.
+  ///
+  /// Throws the error message on failure for UI handling.
   Future<void> login(
     String username,
     String password,
@@ -101,23 +146,27 @@ class AuthController extends ChangeNotifier {
       homeserver: homeserver,
     );
 
-    result.fold(
-      (_) {
-        // Success - state updates via loginStateStream
-        _log.info("Login successful");
-      },
-      (exception) {
-        _log.warning("Login Error", exception);
-        throw exception.userMessage;
-      },
-    );
+    result.fold((_) => _log.info('Login successful'), (exception) {
+      _log.warning('Login Error', exception);
+      throw exception.userMessage;
+    });
   }
 
+  /// Logs out the current user.
   Future<void> logout() async {
     final result = await _authRepository.logout();
     result.fold(
-      (_) => _log.info("Logout successful"),
-      (e) => _log.warning("Logout error: ${e.message}"),
+      (_) => _log.info('Logout successful'),
+      (e) => _log.warning('Logout error: ${e.message}'),
     );
+  }
+
+  /// Called when user logs in via SSO or other external method.
+  /// Updates the auth state to authenticated.
+  void notifyLoggedIn() {
+    if (_authRepository.isLoggedIn) {
+      _state = AuthState.authenticated;
+      notifyListeners();
+    }
   }
 }

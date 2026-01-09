@@ -1,25 +1,27 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show DateUtils, Colors;
-import 'package:monochat/controllers/chat_controller.dart';
-import 'package:monochat/data/repositories/matrix_chat_repository.dart';
-import 'package:monochat/services/matrix_service.dart';
-import 'package:monochat/ui/widgets/chat/date_header.dart';
-import 'package:monochat/ui/widgets/chat/message_bubble.dart';
-import 'package:monochat/ui/widgets/matrix_avatar.dart';
-import 'package:provider/provider.dart';
-import 'package:matrix/matrix.dart';
+import 'package:flutter/material.dart' show Colors, DateUtils;
 import 'package:gap/gap.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:logging/logging.dart';
-import 'package:monochat/ui/widgets/fallback_file_picker.dart';
+import 'package:matrix/matrix.dart';
+import 'package:provider/provider.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
-import 'package:file_picker/file_picker.dart';
+
+import 'package:monochat/controllers/chat_controller.dart';
+import 'package:monochat/controllers/theme_controller.dart';
+import 'package:monochat/data/repositories/matrix_chat_repository.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
+import 'package:monochat/services/matrix_service.dart';
 import 'package:monochat/ui/dialogs/send_file_dialog.dart';
-import 'package:desktop_drop/desktop_drop.dart';
-import 'package:cross_file/cross_file.dart';
+import 'package:monochat/ui/widgets/chat/chat_app_bar.dart';
+import 'package:monochat/ui/widgets/chat/date_header.dart';
+import 'package:monochat/ui/widgets/chat/message_bubble.dart';
+import 'package:monochat/ui/widgets/fallback_file_picker.dart';
+import 'package:monochat/ui/widgets/chat/emoji_picker/reaction_picker_sheet.dart';
 import 'package:monochat/utils/extensions/stream_extension.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -37,90 +39,130 @@ class _ChatScreenState extends State<ChatScreen> {
   final AutoScrollController _scrollController = AutoScrollController();
   final ImagePicker _picker = ImagePicker();
 
+  late final ChatController _controller;
+  bool _isExiting = false;
+
   @override
-  Widget build(BuildContext context) {
-    // Get MatrixService from the root provider to create ChatRepository
+  void initState() {
+    super.initState();
+    // Create controller in initState for proper lifecycle management
     final matrixService = context.read<MatrixService>();
     final chatRepository = MatrixChatRepository(matrixService);
+    _controller = ChatController(
+      room: widget.room,
+      chatRepository: chatRepository,
+    );
+  }
 
-    return ChangeNotifierProvider(
-      create: (_) =>
-          ChatController(room: widget.room, chatRepository: chatRepository),
-      child: Consumer<ChatController>(
-        builder: (context, controller, child) {
-          final client = controller.client;
-          final isInvite = widget.room.membership == Membership.invite;
+  @override
+  void deactivate() {
+    // Mark as read when screen is being removed from the tree
+    // This happens before dispose and gives us a chance to start the operation
+    if (!_isExiting) {
+      _isExiting = true;
+      // Use controller's forceSetReadMarker which uses Timeline like FluffyChat
+      _controller.forceSetReadMarker();
+    }
+    super.deactivate();
+  }
 
-          return DropTarget(
-            onDragDone: (details) => controller.handleDrop(details.files),
-            onDragEntered: (_) => controller.setDragging(true),
-            onDragExited: (_) => controller.setDragging(false),
-            child: Stack(
-              children: [
-                CupertinoPageScaffold(
-                  navigationBar: CupertinoNavigationBar(
-                    middle: Row(
-                      mainAxisSize: MainAxisSize.min,
+  @override
+  void dispose() {
+    _textController.dispose();
+    _scrollController.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// Handle back navigation with read receipt guarantee
+  Future<void> _handleExit() async {
+    if (_isExiting) return;
+    _isExiting = true;
+
+    // Mark as read BEFORE navigating away using Timeline like FluffyChat
+    await _controller.forceSetReadMarker();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) {
+          await _handleExit();
+        }
+      },
+      child: ChangeNotifierProvider.value(
+        value: _controller,
+        child: Consumer<ChatController>(
+          builder: (context, controller, child) {
+            final client = controller.client;
+            final isInvite = widget.room.membership == Membership.invite;
+
+            return DropTarget(
+              onDragDone: (details) => controller.handleDrop(details.files),
+              onDragEntered: (_) => controller.setDragging(true),
+              onDragExited: (_) => controller.setDragging(false),
+              child: Stack(
+                children: [
+                  CupertinoPageScaffold(
+                    resizeToAvoidBottomInset: true,
+                    // Remove SafeArea to allow content behind bars
+                    child: Stack(
                       children: [
-                        MatrixAvatar(
-                          avatarUrl: widget.room.avatar,
-                          name: widget.room.getLocalizedDisplayname(),
-                          client: client,
-                          size: 28,
-                        ),
-                        const Gap(8),
-                        Flexible(
-                          child: Text(
-                            widget.room.getLocalizedDisplayname(),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  child: SafeArea(
-                    child: Column(
-                      children: [
-                        Expanded(
-                          child: isInvite
-                              ? _buildInviteView(context)
-                              : _buildMessageList(context, controller),
-                        ),
-                        if (!isInvite) _buildTypingIndicator(context),
-                        if (!isInvite) _buildInputArea(context, controller),
-                      ],
-                    ),
-                  ),
-                ),
-                if (controller.isDragging)
-                  Container(
-                    color: Colors.black.withOpacity(0.5),
-                    child: const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            CupertinoIcons.cloud_upload_fill,
-                            size: 64,
-                            color: Colors.white,
-                          ),
-                          Gap(16),
-                          Text(
-                            'Drop files here',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
+                        // 1. Content Layer (Message List + Input)
+                        Column(
+                          children: [
+                            Expanded(
+                              child: isInvite
+                                  ? _buildInviteView(context)
+                                  : _buildMessageList(context, controller),
                             ),
-                          ),
-                        ],
+                            if (!isInvite) _buildTypingIndicator(context),
+                            if (!isInvite) _buildInputArea(context, controller),
+                          ],
+                        ),
+
+                        // 2. Translucent Header Layer
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: ChatAppBar(room: widget.room, client: client),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (controller.isDragging)
+                    Container(
+                      color: Colors.black.withOpacity(0.5),
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              CupertinoIcons.cloud_upload_fill,
+                              size: 64,
+                              color: Colors.white,
+                            ),
+                            Gap(16),
+                            Text(
+                              'Drop files here',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -187,14 +229,14 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMessageList(BuildContext context, ChatController controller) {
-    return FutureBuilder<Timeline>(
-      future: widget.room.getTimeline(),
-      builder: (context, timelineSnapshot) {
-        if (!timelineSnapshot.hasData) {
+    // Wait for controller's timeline to load
+    return FutureBuilder<void>(
+      future: controller.loadTimelineFuture,
+      builder: (context, snapshot) {
+        final timeline = controller.timeline;
+        if (timeline == null) {
           return const Center(child: CupertinoActivityIndicator());
         }
-
-        final timeline = timelineSnapshot.data!;
 
         // Use rate-limited stream for better performance
         final roomStream = widget.room.client.onRoomState.stream
@@ -204,65 +246,98 @@ class _ChatScreenState extends State<ChatScreen> {
         return StreamBuilder(
           stream: roomStream,
           builder: (context, snapshot) {
+            // Trigger read receipt on updates
+            if (snapshot.hasData) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                controller.setReadMarker();
+              });
+            }
+
             final events = timeline.events;
 
-            return ListView.custom(
-              key: PageStorageKey<String>('chat_${widget.room.id}'),
-              controller: _scrollController,
-              reverse: true,
-              physics: const AlwaysScrollableScrollPhysics(
-                parent: BouncingScrollPhysics(),
-              ),
-              cacheExtent: 350.0,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              childrenDelegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final event = events[index];
+            return NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification is ScrollUpdateNotification) {
+                  // Use tolerance to account for bounce physics and
+                  // small scroll offsets when new messages arrive
+                  // In reversed list: pixels = 0 means at bottom (newest)
+                  const scrollThreshold = 100.0;
+                  final scrolledUp =
+                      notification.metrics.pixels > scrollThreshold;
+                  controller.setScrolledUp(scrolledUp);
+                }
+                return false;
+              },
+              child: ListView.custom(
+                key: PageStorageKey<String>('chat_${widget.room.id}'),
+                controller: _scrollController,
+                reverse: true,
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                cacheExtent: 350.0,
+                padding: EdgeInsets.only(
+                  left: 12,
+                  right: 12,
+                  bottom: 8,
+                  top: MediaQuery.of(context).padding.top + 60 + 8,
+                ),
+                childrenDelegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final event = events[index];
 
-                  if (event.type != EventTypes.Message &&
-                      event.type != EventTypes.Sticker &&
-                      event.type != EventTypes.Encrypted) {
-                    return const SizedBox.shrink();
-                  }
+                    if (event.type != EventTypes.Message &&
+                        event.type != EventTypes.Sticker &&
+                        event.type != EventTypes.Encrypted) {
+                      return const SizedBox.shrink();
+                    }
 
-                  final isMe = event.senderId == controller.client.userID;
-                  final nextEvent = index > 0 ? events[index - 1] : null;
-                  final prevEvent = index < events.length - 1
-                      ? events[index + 1]
-                      : null;
+                    final isMe = event.senderId == controller.client.userID;
+                    final nextEvent = index > 0 ? events[index - 1] : null;
+                    final prevEvent = index < events.length - 1
+                        ? events[index + 1]
+                        : null;
 
-                  final showTail =
-                      nextEvent == null || nextEvent.senderId != event.senderId;
-                  final showDateHeader =
-                      prevEvent == null ||
-                      !DateUtils.isSameDay(
-                        event.originServerTs,
-                        prevEvent.originServerTs,
-                      );
+                    final showTail =
+                        nextEvent == null ||
+                        nextEvent.senderId != event.senderId;
+                    final showDateHeader =
+                        prevEvent == null ||
+                        !DateUtils.isSameDay(
+                          event.originServerTs,
+                          prevEvent.originServerTs,
+                        );
 
-                  return _MessageListItem(
-                    key: ValueKey(event.eventId),
-                    event: event,
-                    isMe: isMe,
-                    showTail: showTail,
-                    showDateHeader: showDateHeader,
-                    client: controller.client,
-                    scrollController: _scrollController,
-                    index: index,
-                    onSwipeReply: () => controller.setReplyTo(event),
-                  );
-                },
-                childCount: events.length,
-                findChildIndexCallback: (Key key) {
-                  if (key is ValueKey<String>) {
-                    final eventId = key.value;
-                    final index = events.indexWhere(
-                      (e) => e.eventId == eventId,
+                    final isFirstInGroup =
+                        prevEvent == null ||
+                        prevEvent.senderId != event.senderId;
+
+                    return _MessageListItem(
+                      key: ValueKey(event.eventId),
+                      event: event,
+                      isMe: isMe,
+                      showTail: showTail,
+                      isFirstInGroup: isFirstInGroup,
+                      showDateHeader: showDateHeader,
+                      client: controller.client,
+                      scrollController: _scrollController,
+                      index: index,
+                      onSwipeReply: () => controller.setReplyTo(event),
+                      timeline: timeline,
                     );
-                    return index >= 0 ? index : null;
-                  }
-                  return null;
-                },
+                  },
+                  childCount: events.length,
+                  findChildIndexCallback: (Key key) {
+                    if (key is ValueKey<String>) {
+                      final eventId = key.value;
+                      final index = events.indexWhere(
+                        (e) => e.eventId == eventId,
+                      );
+                      return index >= 0 ? index : null;
+                    }
+                    return null;
+                  },
+                ),
               ),
             );
           },
@@ -338,19 +413,32 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _pickImage(ChatController controller, ImageSource source) async {
     try {
-      final XFile? image = await _picker.pickImage(
-        source: source,
-        imageQuality: 70,
-        maxWidth: 1920,
-        maxHeight: 1920,
-      );
-      if (image == null) return;
+      final List<XFile> files = [];
+      if (source == ImageSource.camera) {
+        final XFile? image = await _picker.pickImage(
+          source: source,
+          imageQuality: 70,
+          maxWidth: 1920,
+          maxHeight: 1920,
+        );
+        if (image != null) files.add(image);
+      } else {
+        files.addAll(
+          await _picker.pickMultiImage(
+            imageQuality: 70,
+            maxWidth: 1920,
+            maxHeight: 1920,
+          ),
+        );
+      }
+
+      if (files.isEmpty) return;
 
       // Show send dialog
       await SendFileDialog.show(
         context,
         room: widget.room,
-        files: [image],
+        files: files,
         onSend: (files, compress) =>
             controller.sendFiles(files, compress: compress),
       );
@@ -361,14 +449,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _pickVideo(ChatController controller) async {
     try {
-      final XFile? video = await _picker.pickVideo(source: ImageSource.gallery);
-      if (video == null) return;
+      final List<XFile> files = await _picker.pickMultipleMedia();
+      if (files.isEmpty) return;
 
       // Show send dialog
       await SendFileDialog.show(
         context,
         room: widget.room,
-        files: [video],
+        files: files,
         onSend: (files, compress) =>
             controller.sendFiles(files, compress: compress),
       );
@@ -426,7 +514,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Container(
       constraints: const BoxConstraints(maxHeight: 120),
-      color: CupertinoColors.systemGrey6,
+      color: context.watch<ThemeController>().palette.inputBackground,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         scrollDirection: Axis.horizontal,
@@ -556,7 +644,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: CupertinoColors.systemGrey6,
+      color: context.watch<ThemeController>().palette.inputBackground,
       child: Row(
         children: [
           const Icon(
@@ -575,19 +663,19 @@ class _ChatScreenState extends State<ChatScreen> {
                             .calcDisplayname() ??
                         "User",
                   ),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
-                    color: CupertinoColors.activeBlue,
+                    color: context.watch<ThemeController>().palette.primary,
                   ),
                 ),
                 Text(
                   controller.replyingTo?.body ?? 'Attachment',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: CupertinoColors.black,
+                    color: CupertinoColors.label.resolveFrom(context),
                   ),
                 ),
               ],
@@ -615,7 +703,7 @@ class _ChatScreenState extends State<ChatScreen> {
         if (controller.processingFiles.isNotEmpty)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: CupertinoColors.systemGrey6,
+            color: context.watch<ThemeController>().palette.inputBackground,
             child: Row(
               children: [
                 const CupertinoActivityIndicator(radius: 8),
@@ -639,10 +727,13 @@ class _ChatScreenState extends State<ChatScreen> {
         _buildDraftAttachmentList(controller), // Added draft list
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-          decoration: const BoxDecoration(
-            color: CupertinoColors.systemBackground,
+          decoration: BoxDecoration(
+            color: context.watch<ThemeController>().palette.barBackground,
             border: Border(
-              top: BorderSide(color: CupertinoColors.separator, width: 0.5),
+              top: BorderSide(
+                color: context.watch<ThemeController>().palette.separator,
+                width: 0.5,
+              ),
             ),
           ),
           child: SafeArea(
@@ -662,6 +753,29 @@ class _ChatScreenState extends State<ChatScreen> {
                     color: CupertinoColors.systemGrey,
                   ),
                 ),
+                CupertinoButton(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 8,
+                  ),
+                  onPressed: () {
+                    showCupertinoModalPopup(
+                      context: context,
+                      builder: (context) => ReactionPickerSheet(
+                        onEmojiSelected: (emoji) {
+                          Navigator.pop(context);
+                          _textController.text += emoji;
+                          controller.updateTyping(true);
+                        },
+                      ),
+                    );
+                  },
+                  child: const Icon(
+                    CupertinoIcons.smiley,
+                    size: 26,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
                 Expanded(
                   child: CupertinoTextField(
                     controller: _textController,
@@ -675,7 +789,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: CupertinoColors.systemGrey6,
+                      color: context
+                          .watch<ThemeController>()
+                          .palette
+                          .inputBackground,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     onChanged: (text) {
@@ -690,10 +807,10 @@ class _ChatScreenState extends State<ChatScreen> {
                         controller.sendMessage(_textController.text);
                         _textController.clear();
                       },
-                      child: const Icon(
+                      child: Icon(
                         CupertinoIcons.arrow_up_circle_fill,
                         size: 32,
-                        color: CupertinoColors.activeBlue,
+                        color: context.watch<ThemeController>().palette.primary,
                       ),
                     ),
                     onSubmitted: (text) {
@@ -721,6 +838,7 @@ class _MessageListItem extends StatefulWidget {
   final Event event;
   final bool isMe;
   final bool showTail;
+  final bool isFirstInGroup;
   final bool showDateHeader;
   final Client client;
   final AutoScrollController scrollController;
@@ -732,12 +850,16 @@ class _MessageListItem extends StatefulWidget {
     required this.event,
     required this.isMe,
     required this.showTail,
+    required this.isFirstInGroup,
     required this.showDateHeader,
     required this.client,
     required this.scrollController,
     required this.index,
     required this.onSwipeReply,
+    required this.timeline,
   });
+
+  final Timeline timeline;
 
   @override
   State<_MessageListItem> createState() => _MessageListItemState();
@@ -846,7 +968,9 @@ class _MessageListItemState extends State<_MessageListItem>
                   event: widget.event,
                   isMe: widget.isMe,
                   showTail: widget.showTail,
+                  isFirstInGroup: widget.isFirstInGroup,
                   client: widget.client,
+                  timeline: widget.timeline,
                 ),
               ],
             ),
