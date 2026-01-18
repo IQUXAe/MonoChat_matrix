@@ -44,6 +44,9 @@ class RoomListController extends ChangeNotifier {
   StreamSubscription<SyncUpdate>? _syncSubscription;
   StreamSubscription<LoginState>? _loginSubscription;
 
+  bool _isOffline = false;
+  bool get isOffline => _isOffline;
+
   // ===========================================================================
   // LIFECYCLE
   // ===========================================================================
@@ -53,19 +56,23 @@ class RoomListController extends ChangeNotifier {
   }
 
   void _init() {
-    // Initial check - if we have rooms, start loading
+    // Always setup sync listener to catch incoming rooms
+    _setupSyncListener();
+
+    // Initial check - if we already have rooms (from cache), show them immediately
     if (_roomRepository.rooms.isNotEmpty) {
-      _startLoadingSequence();
-    } else {
       _isPreloading = false;
+      _updateSortedRooms();
+      _preloadAssets();
     }
+    // If rooms are empty, we keep _isPreloading = true until first sync or timeout
 
     // Listen to login state
     _loginSubscription = _roomRepository.loginStateStream.listen((state) {
       if (state == LoginState.loggedIn) {
         _isPreloading = true;
+        _setupSyncListener();
         notifyListeners();
-        _startLoadingSequence();
       } else {
         _syncSubscription?.cancel();
         _sortedRooms = [];
@@ -75,18 +82,34 @@ class RoomListController extends ChangeNotifier {
     });
   }
 
-  void _startLoadingSequence() {
-    _setupSyncListener();
-    _updateSortedRooms();
-    _preloadAssets();
-  }
-
   void _setupSyncListener() {
     _syncSubscription?.cancel();
-    _syncSubscription = _roomRepository.syncStream.listen((_) {
-      _updateSortedRooms();
-      notifyListeners();
-    });
+    _syncSubscription = _roomRepository.syncStream.listen(
+      (_) {
+        if (_isOffline) {
+          _isOffline = false;
+          notifyListeners();
+        }
+
+        _updateSortedRooms();
+
+        // First sync arrived? Stop preloading.
+        if (_isPreloading) {
+          _isPreloading = false;
+          // Also trigger asset preload now if needed
+          _preloadAssets();
+        }
+
+        notifyListeners();
+      },
+      onError: (e) {
+        _log.warning('Sync error (likely offline)', e);
+        if (!_isOffline) {
+          _isOffline = true;
+          notifyListeners();
+        }
+      },
+    );
   }
 
   void _updateSortedRooms() {
@@ -164,5 +187,17 @@ class RoomListController extends ChangeNotifier {
   Future<List<Profile>> searchUsers(String query) async {
     final result = await _roomRepository.searchUsers(query);
     return result.fold((users) => users, (_) => []);
+  }
+
+  /// Searches for public rooms.
+  Future<List<PublicRoomsChunk>> searchPublicRooms(
+    String query, {
+    String? server,
+  }) async {
+    final result = await _roomRepository.searchPublicRooms(
+      query,
+      server: server,
+    );
+    return result.fold((rooms) => rooms, (_) => []);
   }
 }

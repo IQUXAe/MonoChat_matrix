@@ -1,5 +1,8 @@
 import 'dart:io';
 
+import 'dart:math';
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_vodozemac/flutter_vodozemac.dart' as vod;
 import 'package:logging/logging.dart';
 import 'package:matrix/encryption.dart';
@@ -64,6 +67,9 @@ class MatrixService {
       databaseFactory = databaseFactoryFfi;
     }
 
+    // Retrieve or generate secure key for DB encryption
+    final dbKey = await _getDatabaseKey();
+
     final dir = await getApplicationSupportDirectory();
     final dbPath = p.join(dir.path, 'monochat_matrix_v2.sqlite');
 
@@ -80,6 +86,13 @@ class MatrixService {
       ),
     );
 
+    // TODO: To fully encrypt the database file, we need a SQLCipher-capable sqflite implementation.
+    // Currently using standard sqflite_common_ffi.
+    // The key generated above can be used once we migrate to a cipher-capable DB factory.
+    _log.info(
+      'Secure DB key generated/retrieved (ready for SQLCipher integration): ${dbKey.substring(0, 4)}...',
+    );
+
     _client = Client(
       'MonoChat',
       database: database,
@@ -87,6 +100,10 @@ class MatrixService {
       verificationMethods: {
         KeyVerificationMethod.numbers,
         KeyVerificationMethod.emoji,
+      },
+      supportedLoginTypes: {
+        AuthenticationTypes.password,
+        AuthenticationTypes.sso,
       },
     );
 
@@ -100,8 +117,15 @@ class MatrixService {
     }
 
     // Setup listeners
-    _client!.onLoginStateChanged.stream.listen((state) {
+    _client!.onLoginStateChanged.stream.listen((state) async {
       _log.info('Login state changed: $state');
+      if (state == LoginState.loggedIn) {
+        // Wait for login process to complete its own sync/init
+        await Future.delayed(const Duration(seconds: 2));
+        BackgroundSyncService.startBackgroundSync(_client!);
+      } else if (state == LoginState.loggedOut) {
+        BackgroundSyncService.stopBackgroundSync();
+      }
     });
   }
 
@@ -123,5 +147,50 @@ class MatrixService {
     throw UnimplementedError(
       'Use MatrixChatRepository.sendTextMessage() instead',
     );
+  }
+
+  Future<String> _getDatabaseKey() async {
+    const storage = FlutterSecureStorage();
+    const keyName = 'matrix_db_key';
+
+    try {
+      // 1. Try Secure Storage
+      String? key = await storage.read(key: keyName);
+
+      if (key == null) {
+        key = _generateKey();
+        await storage.write(key: keyName, value: key);
+        _log.info('Generated new secure database key');
+      } else {
+        _log.info('Retrieved existing secure database key');
+      }
+      return key;
+    } catch (e) {
+      _log.warning(
+        'Secure storage failed ($e). Falling back to insecure file storage.',
+      );
+      return await _getInsecureDatabaseKey(keyName);
+    }
+  }
+
+  Future<String> _getInsecureDatabaseKey(String keyName) async {
+    final dir = await getApplicationSupportDirectory();
+    final file = File(p.join(dir.path, '$keyName.insecure'));
+
+    if (await file.exists()) {
+      _log.info('Retrieved existing INSECURE database key');
+      return await file.readAsString();
+    } else {
+      final key = _generateKey();
+      await file.writeAsString(key);
+      _log.info('Generated new INSECURE database key');
+      return key;
+    }
+  }
+
+  String _generateKey() {
+    final random = Random.secure();
+    final values = List<int>.generate(32, (i) => random.nextInt(256));
+    return values.map((e) => e.toRadixString(16).padLeft(2, '0')).join();
   }
 }

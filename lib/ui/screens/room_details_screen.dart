@@ -12,6 +12,8 @@ import 'package:monochat/ui/widgets/mxc_image.dart';
 import 'package:monochat/ui/widgets/matrix_avatar.dart';
 import 'package:monochat/ui/widgets/presence_builder.dart';
 import 'package:monochat/ui/dialogs/user_profile_dialog.dart';
+import 'package:monochat/ui/screens/user_verification_screen.dart';
+import 'package:monochat/ui/widgets/avatar_viewer.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
 
 /// Full-page room/chat details screen.
@@ -310,10 +312,10 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     Navigator.of(context).push(
       CupertinoPageRoute(
         fullscreenDialog: true,
-        builder: (context) => _FullScreenAvatarView(
-          avatarUri: avatarUri,
+        builder: (context) => AvatarViewer(
+          uri: avatarUri,
           client: widget.client,
-          name: widget.room.getLocalizedDisplayname(),
+          displayName: widget.room.getLocalizedDisplayname(),
         ),
       ),
     );
@@ -334,6 +336,16 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
             palette: palette,
             onTap: () => _copyToClipboard(room.id),
           ),
+          if (room.canonicalAlias.isNotEmpty) ...[
+            Divider(height: 1, color: palette.separator.withValues(alpha: 0.3)),
+            _buildInfoTile(
+              icon: CupertinoIcons.at,
+              title: 'Room Alias',
+              value: room.canonicalAlias,
+              palette: palette,
+              onTap: () => _copyToClipboard(room.canonicalAlias),
+            ),
+          ],
           Divider(height: 1, color: palette.separator.withValues(alpha: 0.3)),
           _buildInfoTile(
             icon: CupertinoIcons.person_2,
@@ -667,6 +679,24 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
       palette: palette,
       child: Column(
         children: [
+          if (room.isDirectChat &&
+              room.encrypted &&
+              room.directChatMatrixID != null) ...[
+            _buildActionTile(
+              icon: CupertinoIcons.lock_shield_fill,
+              title: 'Verify User',
+              palette: palette,
+              onTap: () => Navigator.of(context).push(
+                CupertinoPageRoute(
+                  builder: (_) => UserVerificationScreen(
+                    client: widget.client,
+                    userId: room.directChatMatrixID!,
+                  ),
+                ),
+              ),
+            ),
+            Divider(height: 1, color: palette.separator.withValues(alpha: 0.3)),
+          ],
           _buildActionTile(
             icon: CupertinoIcons.search,
             title: 'Search in Chat',
@@ -686,7 +716,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
             icon: room.isDirectChat
                 ? CupertinoIcons.delete
                 : CupertinoIcons.arrow_right_square,
-            title: room.isDirectChat ? 'Delete Chat' : 'Leave Room',
+            title: room.isDirectChat ? 'Delete Chat' : 'Leave Group',
             palette: palette,
             isDestructive: true,
             onTap: () => _showLeaveConfirmation(room.isDirectChat),
@@ -821,33 +851,49 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
 
   Future<void> _showLeaveConfirmation(bool isDirectChat) async {
     final l10n = AppLocalizations.of(context)!;
+    // final canDelete = !isDirectChat; // Simplified check or remove if not needed for logic below yet
 
-    final confirmed = await showCupertinoDialog<bool>(
+    final result = await showCupertinoModalPopup<String>(
       context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: Text(isDirectChat ? 'Delete Chat?' : 'Leave Room?'),
-        content: Text(
+      builder: (context) => CupertinoActionSheet(
+        title: Text(isDirectChat ? 'Delete Chat?' : 'Leave Group?'),
+        message: Text(
           isDirectChat
               ? 'This will delete the chat history for you.'
-              : 'Are you sure you want to leave this room?',
+              : 'Are you sure you want to leave this group?',
         ),
         actions: [
-          CupertinoDialogAction(
-            child: Text(l10n.cancel),
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          CupertinoDialogAction(
+          CupertinoActionSheetAction(
             isDestructiveAction: true,
+            onPressed: () => Navigator.pop(context, 'leave'),
             child: Text(isDirectChat ? 'Delete' : 'Leave'),
-            onPressed: () => Navigator.pop(context, true),
           ),
+          if (!isDirectChat) // Option to forgetting/deleting if applicable
+            CupertinoActionSheetAction(
+              isDestructiveAction: true,
+              onPressed: () => Navigator.pop(context, 'forget'),
+              child: const Text(
+                'Delete Group',
+              ), // "Forget" in Matrix terms effectively deletes it from user view
+            ),
         ],
+        cancelButton: CupertinoActionSheetAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.cancel),
+        ),
       ),
     );
 
-    if (confirmed == true && context.mounted) {
+    if (result != null && context.mounted) {
       try {
-        await widget.room.leave();
+        if (result == 'leave') {
+          await widget.room.leave();
+        } else if (result == 'forget') {
+          await widget.room.leave();
+          await widget.room.forget();
+        }
+
         if (context.mounted) {
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
@@ -1314,58 +1360,6 @@ class _LinksScreenState extends State<LinksScreen> {
                   );
                 },
               ),
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// FULL SCREEN AVATAR VIEWER
-// =============================================================================
-
-class _FullScreenAvatarView extends StatelessWidget {
-  final Uri avatarUri;
-  final Client client;
-  final String name;
-
-  const _FullScreenAvatarView({
-    required this.avatarUri,
-    required this.client,
-    required this.name,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.black,
-      navigationBar: CupertinoNavigationBar(
-        backgroundColor: CupertinoColors.black.withValues(alpha: 0.8),
-        border: null,
-        middle: Text(
-          name,
-          style: const TextStyle(color: CupertinoColors.white),
-        ),
-        leading: CupertinoButton(
-          padding: EdgeInsets.zero,
-          child: const Text(
-            'Close',
-            style: TextStyle(color: CupertinoColors.white),
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      child: SafeArea(
-        child: Center(
-          child: InteractiveViewer(
-            minScale: 0.5,
-            maxScale: 4.0,
-            child: MxcImage(
-              uri: avatarUri,
-              client: client,
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
       ),
     );
   }

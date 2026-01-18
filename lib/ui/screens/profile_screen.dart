@@ -8,6 +8,8 @@ import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:monochat/ui/widgets/matrix_avatar.dart';
 
+import 'package:monochat/ui/widgets/avatar_viewer.dart';
+
 // =============================================================================
 // PROFILE SCREEN
 // =============================================================================
@@ -19,9 +21,14 @@ import 'package:monochat/ui/widgets/matrix_avatar.dart';
 /// - Matrix ID
 /// - Account statistics
 /// - Account actions (edit profile, logout)
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final authController = context.watch<AuthController>();
@@ -56,7 +63,10 @@ class ProfileScreen extends StatelessWidget {
                   const SizedBox(height: 16),
 
                   // Profile Card
-                  _ProfileCard(client: client),
+                  _ProfileCard(
+                    client: client,
+                    onProfileUpdated: () => setState(() {}),
+                  ),
 
                   const SizedBox(height: 24),
 
@@ -141,22 +151,6 @@ class ProfileScreen extends StatelessWidget {
             subtitle: 'Share your profile',
             onTap: () => _showQRCode(context, client),
           ),
-          _buildDivider(context),
-          _ProfileActionTile(
-            icon: CupertinoIcons.device_phone_portrait,
-            iconColor: CupertinoColors.systemBlue,
-            title: 'Devices',
-            subtitle: 'Manage your sessions',
-            onTap: () {},
-          ),
-          _buildDivider(context),
-          _ProfileActionTile(
-            icon: CupertinoIcons.shield_fill,
-            iconColor: CupertinoColors.systemGreen,
-            title: 'Security',
-            subtitle: 'Encryption keys & verification',
-            onTap: () {},
-          ),
         ],
       ),
     );
@@ -179,17 +173,8 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDivider(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 56),
-      child: Container(
-        height: 0.5,
-        color: context.read<ThemeController>().palette.separator,
-      ),
-    );
-  }
-
   void _showQRCode(BuildContext context, Client client) {
+    // ... (existing implementation)
     showCupertinoDialog<void>(
       context: context,
       builder: (context) => CupertinoAlertDialog(
@@ -263,11 +248,27 @@ class ProfileScreen extends StatelessWidget {
 // PROFILE CARD
 // =============================================================================
 
-/// Profile card with avatar and user info.
-class _ProfileCard extends StatelessWidget {
-  final Client client;
+// =============================================================================
+// PROFILE CARD
+// =============================================================================
 
-  const _ProfileCard({required this.client});
+/// Profile card with avatar and user info.
+class _ProfileCard extends StatefulWidget {
+  final Client client;
+  final VoidCallback? onProfileUpdated;
+
+  const _ProfileCard({required this.client, this.onProfileUpdated});
+
+  @override
+  State<_ProfileCard> createState() => _ProfileCardState();
+}
+
+class _ProfileCardState extends State<_ProfileCard> {
+  // We can use a key or purely rely on FutureBuilder re-running if setState called
+  // But FutureBuilder re-runs every build if future is not stored.
+  // We should store the future to avoid unnecessary fetches,
+  // but here we WANT to re-fetch when requested.
+  // Simplest: Just use FutureBuilder normally. Parent `setState` triggers rebuild here.
 
   @override
   Widget build(BuildContext context) {
@@ -286,42 +287,48 @@ class _ProfileCard extends StatelessWidget {
       ),
       child: Builder(
         builder: (context) {
-          // Check if user is logged in
-          if (client.userID == null) {
-            return Column(
-              children: [
-                MatrixAvatar(
-                  avatarUrl: null,
-                  name: 'User',
-                  client: client,
-                  size: 100,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Not logged in',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
-                ),
-              ],
-            );
+          if (widget.client.userID == null) {
+            return const SizedBox(); // Should not happen
           }
 
           return FutureBuilder<Profile>(
-            future: client.fetchOwnProfile(),
+            // We force a new future on every build by calling method directly
+            // This is usually bad for perf, but here acceptable as ProfileScreen
+            // is not frequently rebuilt (only on interactions).
+            // Actually, scrolling might trigger it? No, it's SliverToBoxAdapter.
+            // If it becomes an issue, we will wrap in Future.
+            future: widget.client.fetchOwnProfile(),
             builder: (context, snapshot) {
               final profile = snapshot.data;
               final displayName =
-                  profile?.displayName ?? client.userID?.localpart ?? 'User';
+                  profile?.displayName ??
+                  widget.client.userID?.localpart ??
+                  'User';
 
               return Column(
                 children: [
                   // Avatar with edit button
                   Stack(
                     children: [
-                      MatrixAvatar(
-                        avatarUrl: profile?.avatarUrl,
-                        name: displayName,
-                        client: client,
-                        size: 100,
+                      GestureDetector(
+                        onTap: () {
+                          if (profile?.avatarUrl != null) {
+                            showCupertinoModalPopup(
+                              context: context,
+                              builder: (context) => AvatarViewer(
+                                uri: profile!.avatarUrl!,
+                                client: widget.client,
+                                displayName: displayName,
+                              ),
+                            );
+                          }
+                        },
+                        child: MatrixAvatar(
+                          avatarUrl: profile?.avatarUrl,
+                          name: displayName,
+                          client: widget.client,
+                          size: 100,
+                        ),
                       ),
                       Positioned(
                         right: 0,
@@ -369,7 +376,7 @@ class _ProfileCard extends StatelessWidget {
 
                   // Matrix ID
                   Text(
-                    client.userID ?? '',
+                    widget.client.userID ?? '',
                     style: TextStyle(
                       fontSize: 15,
                       color: context
@@ -409,6 +416,7 @@ class _ProfileCard extends StatelessWidget {
   }
 
   void _showEditAvatarSheet(BuildContext context) {
+    // ... existing implementation ...
     showCupertinoModalPopup<void>(
       context: context,
       builder: (context) => CupertinoActionSheet(
@@ -421,11 +429,6 @@ class _ProfileCard extends StatelessWidget {
             onPressed: () => Navigator.pop(context),
             child: const Text('Choose from Library'),
           ),
-          CupertinoActionSheetAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Remove Photo'),
-          ),
         ],
         cancelButton: CupertinoActionSheetAction(
           isDefaultAction: true,
@@ -436,11 +439,16 @@ class _ProfileCard extends StatelessWidget {
     );
   }
 
-  void _showEditProfileSheet(BuildContext context) {
-    showCupertinoModalPopup<void>(
+  Future<void> _showEditProfileSheet(BuildContext context) async {
+    // Wait for result
+    await showCupertinoModalPopup<void>(
       context: context,
-      builder: (context) => _EditProfileSheet(client: client),
+      builder: (context) => _EditProfileSheet(client: widget.client),
     );
+    // Trigger update in parent
+    widget.onProfileUpdated?.call();
+    // Also setState here just in case
+    setState(() {});
   }
 }
 

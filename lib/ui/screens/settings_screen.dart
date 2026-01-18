@@ -1,12 +1,13 @@
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
+import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
-
-// =============================================================================
-// SETTINGS SCREEN
-// =============================================================================
+import 'package:monochat/ui/screens/cache_settings_screen.dart';
+import 'package:monochat/ui/screens/devices_screen.dart';
+import 'package:monochat/ui/screens/security_settings_screen.dart';
+import 'package:monochat/services/app_icon_service.dart';
 
 /// Settings screen with iOS-style grouped settings.
 ///
@@ -88,6 +89,16 @@ class SettingsScreen extends StatelessWidget {
                         ),
                         onTap: () => _showAccentColorSheet(context),
                       ),
+                      _SettingsTile(
+                        icon: CupertinoIcons.app_badge,
+                        iconColor: CupertinoColors.systemOrange,
+                        title: 'App Icon',
+                        trailing: const _SettingsValue(
+                          value: '',
+                          showChevron: true,
+                        ),
+                        onTap: () => _showAppIconSheet(context),
+                      ),
                     ],
                   ),
 
@@ -130,25 +141,52 @@ class SettingsScreen extends StatelessWidget {
                     context,
                     children: [
                       _SettingsTile(
+                        icon: CupertinoIcons.device_phone_portrait,
+                        iconColor: CupertinoColors.systemBlue,
+                        title: 'Devices',
+                        onTap: () {
+                          final client = context.read<AuthController>().client;
+                          if (client != null) {
+                            Navigator.of(context).push(
+                              CupertinoPageRoute(
+                                builder: (_) => DevicesScreen(client: client),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      _SettingsTile(
                         icon: CupertinoIcons.lock_fill,
                         iconColor: CupertinoColors.systemGreen,
-                        title: 'Encryption',
-                        trailing: const _SettingsValue(value: 'Enabled'),
-                        onTap: () {},
+                        title: 'Security',
+                        trailing: const _SettingsValue(value: ''),
+                        onTap: () {
+                          final client = context.read<AuthController>().client;
+                          if (client != null) {
+                            Navigator.of(context).push(
+                              CupertinoPageRoute(
+                                builder: (_) =>
+                                    SecuritySettingsScreen(client: client),
+                              ),
+                            );
+                          }
+                        },
                       ),
-                      _SettingsToggleTile(
+                      _SettingsTile(
                         icon: CupertinoIcons.eye_slash_fill,
                         iconColor: CupertinoColors.systemGrey,
                         title: 'Read Receipts',
-                        value: true,
-                        onChanged: (value) {},
+                        trailing: _SettingsValue(
+                          value: 'On',
+                        ), // Simplified for now
+                        onTap: () {},
                       ),
-                      _SettingsToggleTile(
+                      _SettingsTile(
                         icon: CupertinoIcons.pencil_ellipsis_rectangle,
                         iconColor: CupertinoColors.systemTeal,
                         title: 'Typing Indicators',
-                        value: true,
-                        onChanged: (value) {},
+                        trailing: _SettingsValue(value: 'On'),
+                        onTap: () {},
                       ),
                     ],
                   ),
@@ -177,9 +215,16 @@ class SettingsScreen extends StatelessWidget {
                       _SettingsTile(
                         icon: CupertinoIcons.trash_fill,
                         iconColor: CupertinoColors.systemRed,
-                        title: 'Clear Cache',
-                        trailing: const _SettingsValue(value: '124 MB'),
-                        onTap: () => _showClearCacheDialog(context),
+                        title: 'Storage Usage',
+                        trailing: const _SettingsValue(
+                          value: '',
+                          showChevron: true,
+                        ),
+                        onTap: () => Navigator.of(context).push(
+                          CupertinoPageRoute(
+                            builder: (_) => const CacheSettingsScreen(),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -481,26 +526,32 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  void _showClearCacheDialog(BuildContext context) {
-    showCupertinoDialog<void>(
+  void _showAppIconSheet(BuildContext context) {
+    showCupertinoModalPopup<void>(
       context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('Clear Cache'),
-        content: const Text(
-          'This will delete all cached media files. '
-          'They will be re-downloaded when needed.',
-        ),
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('App Icon'),
         actions: [
-          CupertinoDialogAction(
-            child: const Text('Cancel'),
-            onPressed: () => Navigator.pop(context),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              AppIconService().setLightIcon();
+              Navigator.pop(context);
+            },
+            child: const Text('Light (Default)'),
           ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            child: const Text('Clear'),
-            onPressed: () => Navigator.pop(context),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              AppIconService().setDarkIcon();
+              Navigator.pop(context);
+            },
+            child: const Text('Dark'),
           ),
         ],
+        cancelButton: CupertinoActionSheetAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
       ),
     );
   }

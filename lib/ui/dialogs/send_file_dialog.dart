@@ -119,9 +119,9 @@ class _SendFileDialogState extends State<SendFileDialog> {
     }
 
     return Container(
-      decoration: const BoxDecoration(
-        color: CupertinoColors.systemBackground,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      decoration: BoxDecoration(
+        color: palette.scaffoldBackground,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
       ),
       child: SafeArea(
         top: false,
@@ -134,7 +134,9 @@ class _SendFileDialogState extends State<SendFileDialog> {
               height: 5,
               margin: const EdgeInsets.only(top: 8, bottom: 8),
               decoration: BoxDecoration(
-                color: CupertinoColors.systemGrey3,
+                color: palette.secondaryText.withValues(
+                  alpha: 0.2,
+                ), // softer handle
                 borderRadius: BorderRadius.circular(2.5),
               ),
             ),
@@ -144,25 +146,20 @@ class _SendFileDialogState extends State<SendFileDialog> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w600,
+                  color: palette.text,
                 ),
               ),
             ),
 
-            Container(
-              height: 1,
-              color: CupertinoColors.separator.resolveFrom(context),
-            ),
+            Container(height: 0.5, color: palette.separator),
 
             // Preview area
             if (isImage) _buildImagePreviews() else _buildFileSummary(),
 
-            Container(
-              height: 1,
-              color: CupertinoColors.separator.resolveFrom(context),
-            ),
+            Container(height: 0.5, color: palette.separator),
 
             // Compression toggle (for images and videos)
             if (isImage || isVideo) _buildCompressionToggle(),
@@ -182,18 +179,14 @@ class _SendFileDialogState extends State<SendFileDialog> {
                       Icon(
                         CupertinoIcons.doc,
                         size: 16,
-                        color: CupertinoColors.secondaryLabel.resolveFrom(
-                          context,
-                        ),
+                        color: palette.secondaryText,
                       ),
                       const Gap(8),
                       Text(
                         l10n.totalSize(size),
                         style: TextStyle(
                           fontSize: 13,
-                          color: CupertinoColors.secondaryLabel.resolveFrom(
-                            context,
-                          ),
+                          color: palette.secondaryText,
                         ),
                       ),
                       if (_compress && isImage) ...[
@@ -224,10 +217,7 @@ class _SendFileDialogState extends State<SendFileDialog> {
               },
             ),
 
-            Container(
-              height: 1,
-              color: CupertinoColors.separator.resolveFrom(context),
-            ),
+            Container(height: 0.5, color: palette.separator),
 
             // Action buttons
             Padding(
@@ -237,15 +227,15 @@ class _SendFileDialogState extends State<SendFileDialog> {
                   Expanded(
                     child: CupertinoButton(
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      color: CupertinoColors.systemGrey5,
+                      color: palette.inputBackground,
                       borderRadius: BorderRadius.circular(12),
                       onPressed: _isSending
                           ? null
                           : () => Navigator.pop(context, false),
                       child: Text(
                         l10n.cancel,
-                        style: const TextStyle(
-                          color: CupertinoColors.label,
+                        style: TextStyle(
+                          color: palette.text,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -310,7 +300,10 @@ class _SendFileDialogState extends State<SendFileDialog> {
                   child: Container(
                     width: _files.length == 1 ? 280 : 160,
                     height: 168,
-                    color: CupertinoColors.systemGrey6,
+                    color: context
+                        .watch<ThemeController>()
+                        .palette
+                        .inputBackground,
                     child: kIsWeb
                         ? FutureBuilder<Uint8List>(
                             future: file.readAsBytes(),
@@ -386,13 +379,13 @@ class _SendFileDialogState extends State<SendFileDialog> {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: CupertinoColors.systemGrey5,
+              color: context.watch<ThemeController>().palette.inputBackground,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
               _getFileIcon(),
               size: 28,
-              color: context.watch<ThemeController>().palette.primary,
+              color: context.read<ThemeController>().palette.primary,
             ),
           ),
           const Gap(16),
@@ -404,9 +397,10 @@ class _SendFileDialogState extends State<SendFileDialog> {
                   _files.length == 1
                       ? _files.first.name
                       : '${_files.length} files',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
+                    color: context.watch<ThemeController>().palette.text,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -416,7 +410,10 @@ class _SendFileDialogState extends State<SendFileDialog> {
                   fileTypes,
                   style: TextStyle(
                     fontSize: 13,
-                    color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                    color: context
+                        .watch<ThemeController>()
+                        .palette
+                        .secondaryText,
                   ),
                 ),
               ],
@@ -452,9 +449,10 @@ class _SendFileDialogState extends State<SendFileDialog> {
               children: [
                 Text(
                   AppLocalizations.of(context)!.compress,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
+                    color: context.watch<ThemeController>().palette.text,
                   ),
                 ),
                 const Gap(2),
@@ -462,7 +460,10 @@ class _SendFileDialogState extends State<SendFileDialog> {
                   AppLocalizations.of(context)!.compressDescription,
                   style: TextStyle(
                     fontSize: 13,
-                    color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                    color: context
+                        .watch<ThemeController>()
+                        .palette
+                        .secondaryText,
                   ),
                 ),
               ],

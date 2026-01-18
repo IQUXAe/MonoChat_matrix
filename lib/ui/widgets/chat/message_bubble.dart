@@ -212,6 +212,18 @@ class _MessageBubbleState extends State<MessageBubble> {
       );
     }
 
+    // Check for System/State events
+    final isSystemEvent =
+        widget.event.type == EventTypes.RoomMember ||
+        widget.event.type == EventTypes.RoomName ||
+        widget.event.type == EventTypes.RoomTopic ||
+        widget.event.type == EventTypes.RoomCreate ||
+        widget.event.type == 'm.room.encryption';
+
+    if (isSystemEvent) {
+      return _buildSystemNotice(context, palette);
+    }
+
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: () {
@@ -246,6 +258,107 @@ class _MessageBubbleState extends State<MessageBubble> {
           vertical: 2,
         ), // small margin for selection visibility
         child: content,
+      ),
+    );
+  }
+
+  Widget _buildSystemNotice(BuildContext context, AppPalette palette) {
+    String text = '';
+    final senderName = widget.event.senderFromMemoryOrFallback
+        .calcDisplayname();
+
+    final type = widget.event.type;
+    final content = widget.event.content;
+    final prevContent = widget.event.prevContent;
+
+    if (type == EventTypes.RoomMember) {
+      final membership = content.tryGet<String>('membership');
+      final prevMembership = prevContent?.tryGet<String>('membership');
+      final stateKey = widget.event.stateKey;
+      final targetId = stateKey;
+
+      String targetName = targetId ?? '';
+      if (targetId == widget.client.userID) {
+        targetName = 'You';
+      } else if (targetId == widget.event.senderId) {
+        targetName = senderName;
+      } else {
+        targetName =
+            content.tryGet<String>('displayname') ?? targetId ?? 'Someone';
+      }
+
+      if (membership == 'join') {
+        if (prevMembership == 'join') {
+          // Profile update
+          final newName = content.tryGet<String>('displayname');
+          final oldName = prevContent?.tryGet<String>('displayname');
+          final newAvatar = content.tryGet<String>('avatar_url');
+          final oldAvatar = prevContent?.tryGet<String>('avatar_url');
+
+          if (newName != oldName && newName != null && oldName != null) {
+            text = '$senderName changed their name to $newName';
+          } else if (newAvatar != oldAvatar) {
+            text = '$senderName changed their avatar';
+          } else {
+            text = '$senderName updated their profile';
+          }
+        } else {
+          // Joined
+          if (targetId == widget.event.senderId) {
+            text = '$senderName joined the chat';
+          } else {
+            text = '$targetName joined the chat';
+          }
+        }
+      } else if (membership == 'leave') {
+        if (targetId == widget.event.senderId) {
+          text = '$senderName left the chat';
+        } else if (prevMembership == 'invite') {
+          if (targetId == widget.event.senderId) {
+            text = '$senderName rejected the invitation';
+          } else {
+            text = '$senderName rejected the invitation for $targetName';
+          }
+        } else if (prevMembership == 'join') {
+          if (targetId != widget.event.senderId) {
+            text = '$targetName was kicked by $senderName';
+          } else {
+            text = '$senderName left';
+          }
+        } else if (prevMembership == 'ban') {
+          text = '$targetName was unbanned by $senderName';
+        }
+      } else if (membership == 'invite') {
+        text = '$senderName invited $targetName';
+      } else if (membership == 'ban') {
+        text = '$targetName was banned by $senderName';
+      }
+    } else if (type == EventTypes.RoomName) {
+      final name = content.tryGet<String>('name');
+      text = '$senderName changed the room name to "$name"';
+    } else if (type == EventTypes.RoomTopic) {
+      final topic = content.tryGet<String>('topic');
+      text = '$senderName changed the topic to "$topic"';
+    } else if (type == EventTypes.RoomCreate) {
+      text = '$senderName created the group';
+    } else if (type == 'm.room.encryption') {
+      text = 'Encryption enabled';
+    }
+
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 24.0),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: palette.secondaryText,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
       ),
     );
   }
@@ -308,6 +421,9 @@ class _MessageContent extends StatelessWidget {
 
     if (isImage) {
       contentBubble = _buildImageBubble(context, palette);
+    } else if (event.type == 'm.key.verification.request' ||
+        msgType == 'm.key.verification.request') {
+      contentBubble = _buildVerificationRequestBubble(context, palette);
     } else if (msgType == MessageTypes.Video) {
       contentBubble = VideoBubble(event: event, isMe: isMe, client: client);
     } else if (msgType == MessageTypes.File) {
@@ -725,6 +841,47 @@ class _MessageContent extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVerificationRequestBubble(
+    BuildContext context,
+    AppPalette palette,
+  ) {
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: showTail ? 12 : 3),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: palette.inputBackground,
+            borderRadius: _getBorderRadius(),
+            border: Border.all(color: palette.primary.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                CupertinoIcons.shield_fill,
+                color: palette.primary,
+                size: 20,
+              ),
+              const Gap(8),
+              Flexible(
+                child: Text(
+                  isMe ? 'Verification request sent' : 'Verification requested',
+                  style: TextStyle(
+                    color: palette.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

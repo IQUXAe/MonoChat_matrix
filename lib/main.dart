@@ -138,6 +138,8 @@ class AuthWrapper extends StatelessWidget {
         return const ErrorScreen();
       case AuthState.initializing:
         return const SplashScreen();
+      case AuthState.secureStorageFailure:
+        return const SecureStorageErrorScreen();
     }
   }
 }
@@ -202,6 +204,58 @@ class ErrorScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(error ?? 'Unknown error', textAlign: TextAlign.center),
+              const SizedBox(height: 24),
+              CupertinoButton.filled(
+                child: const Text('Retry'),
+                onPressed: () {
+                  context.read<AuthController>().retry();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class SecureStorageErrorScreen extends StatelessWidget {
+  const SecureStorageErrorScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final error = context.select<AuthController, String?>(
+      (c) => c.errorMessage,
+    );
+
+    return CupertinoPageScaffold(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                CupertinoIcons.lock_shield_fill,
+                size: 64,
+                color: CupertinoColors.systemRed,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Security Check Failed',
+                style: CupertinoTheme.of(context).textTheme.navTitleTextStyle,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Your device does not support secure key storage (e.g., specific Linux setups without keyring).',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'MonoChat cannot safely store encryption keys. To protect your data, the app will not run in this insecure environment.\n\nError details: $error',
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 24),
               CupertinoButton.filled(
                 child: const Text('Retry'),

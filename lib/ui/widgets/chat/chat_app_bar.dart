@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:gap/gap.dart';
 import 'package:matrix/matrix.dart';
+import 'package:monochat/ui/screens/user_verification_screen.dart';
 import 'package:monochat/ui/widgets/matrix_avatar.dart';
 import 'package:monochat/ui/widgets/presence_builder.dart';
 import 'package:monochat/ui/screens/room_details_screen.dart';
@@ -23,10 +24,79 @@ class ChatAppBar extends StatelessWidget {
     );
   }
 
+  void _showEvaluationSheet(BuildContext context) {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Encryption'),
+        message: Text(
+          room.encrypted
+              ? 'Messages in this chat are end-to-end encrypted.${room.isDirectChat ? " Verify this user to ensure security." : ""}'
+              : 'Messages in this chat are NOT encrypted. You can enable encryption, but it cannot be disabled later.',
+        ),
+        actions: [
+          if (room.encrypted &&
+              room.isDirectChat &&
+              room.directChatMatrixID != null)
+            CupertinoActionSheetAction(
+              child: const Text('Verify User'),
+              onPressed: () {
+                Navigator.pop(context);
+                _startUserVerification(context, room.directChatMatrixID!);
+              },
+            ),
+          if (!room.encrypted)
+            CupertinoActionSheetAction(
+              child: const Text('Enable Encryption'),
+              onPressed: () async {
+                Navigator.pop(context);
+                try {
+                  await room.enableEncryption();
+                } catch (e) {
+                  if (context.mounted) {
+                    showCupertinoDialog(
+                      context: context,
+                      builder: (c) => CupertinoAlertDialog(
+                        title: const Text('Error'),
+                        content: Text(e.toString()),
+                        actions: [
+                          CupertinoDialogAction(
+                            child: const Text('OK'),
+                            onPressed: () => Navigator.pop(c),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                }
+              },
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.pop(context),
+          child: const Text('OK'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startUserVerification(
+    BuildContext context,
+    String userId,
+  ) async {
+    Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => UserVerificationScreen(client: client, userId: userId),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
     final palette = context.watch<ThemeController>().palette;
+    final isEncrypted = room.encrypted;
 
     return ClipRect(
       child: BackdropFilter(
@@ -128,6 +198,22 @@ class ChatAppBar extends StatelessWidget {
                           ],
                         ),
                       ),
+
+                      // Encryption Lock
+                      CupertinoButton(
+                        padding: const EdgeInsets.all(8),
+                        onPressed: () => _showEvaluationSheet(context),
+                        child: Icon(
+                          isEncrypted
+                              ? CupertinoIcons.lock_fill
+                              : CupertinoIcons.lock_open_fill,
+                          size: 18,
+                          color: isEncrypted
+                              ? CupertinoColors.activeGreen
+                              : CupertinoColors.systemRed,
+                        ),
+                      ),
+
                       Icon(
                         CupertinoIcons.chevron_right,
                         size: 16,

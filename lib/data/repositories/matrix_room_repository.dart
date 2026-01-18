@@ -77,4 +77,25 @@ class MatrixRoomRepository implements RoomRepository {
       return Failure(ExceptionMapper.map(e, s));
     }
   }
+
+  @override
+  Future<Result<List<PublicRoomsChunk>>> searchPublicRooms(
+    String query, {
+    String? server,
+  }) async {
+    try {
+      if (_client == null) {
+        return const Failure(ClientNotInitializedException());
+      }
+      // Use queryPublicRooms with generic search term and optional server
+      final response = await _client!.queryPublicRooms(
+        server: server,
+        filter: PublicRoomQueryFilter(genericSearchTerm: query),
+      );
+      return Success(response.chunk ?? []);
+    } catch (e, s) {
+      _log.warning('Failed to search public rooms', e, s);
+      return Failure(ExceptionMapper.map(e, s));
+    }
+  }
 }

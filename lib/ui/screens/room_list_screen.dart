@@ -12,10 +12,46 @@ import 'package:provider/provider.dart';
 import 'package:matrix/matrix.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
+
 import 'package:monochat/l10n/generated/app_localizations.dart';
 
-class RoomListScreen extends StatelessWidget {
+import 'package:monochat/ui/widgets/key_verification_dialog.dart';
+
+class RoomListScreen extends StatefulWidget {
   const RoomListScreen({super.key});
+
+  @override
+  State<RoomListScreen> createState() => _RoomListScreenState();
+}
+
+class _RoomListScreenState extends State<RoomListScreen> {
+  StreamSubscription? _verificationSubscription;
+  Client? _client;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newClient = context.read<AuthController>().client;
+    if (_client != newClient) {
+      _verificationSubscription?.cancel();
+      _client = newClient;
+      if (_client != null) {
+        _verificationSubscription = _client!.onKeyVerificationRequest.stream
+            .listen((request) {
+              if (mounted) {
+                request.onUpdate = null;
+                KeyVerificationDialog.show(context, request);
+              }
+            });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _verificationSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,46 +82,78 @@ class RoomListScreen extends StatelessWidget {
     return CupertinoPageScaffold(
       child: Stack(
         children: [
-          CustomScrollView(
-            cacheExtent: 350,
-            slivers: [
-              CupertinoSliverNavigationBar(
-                largeTitle: Text(AppLocalizations.of(context)!.chatsTitle),
-                trailing: CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  child: const Icon(
-                    CupertinoIcons.person_crop_circle,
-                    size: 26,
+          Positioned.fill(
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              cacheExtent: 350,
+              slivers: [
+                CupertinoSliverNavigationBar(
+                  largeTitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(AppLocalizations.of(context)!.chatsTitle),
+                      if (controller.isOffline)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const CupertinoActivityIndicator(radius: 8),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Waiting for network...',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: CupertinoColors.secondaryLabel,
+                                  fontWeight: FontWeight.normal,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      CupertinoPageRoute(builder: (_) => const ProfileScreen()),
-                    );
-                  },
-                ),
-                border: Border(
-                  bottom: BorderSide(
-                    color: CupertinoColors.separator.withValues(alpha: 0.3),
-                    width: 0.5,
+                  trailing: CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    child: const Icon(
+                      CupertinoIcons.person_crop_circle,
+                      size: 26,
+                    ),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        CupertinoPageRoute(
+                          builder: (_) => const ProfileScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: CupertinoColors.separator.withValues(alpha: 0.3),
+                      width: 0.5,
+                    ),
                   ),
                 ),
-              ),
-              SliverList(
-                delegate: SliverChildBuilderDelegate((context, index) {
-                  if (index.isOdd) {
-                    return Padding(
-                      padding: const EdgeInsets.only(left: 82),
-                      child: Container(
-                        height: 0.5,
-                        color: palette.separator.withValues(alpha: 0.5),
-                      ),
-                    );
-                  }
-                  final room = rooms[index ~/ 2];
-                  return _RoomTile(key: ValueKey(room.id), room: room);
-                }, childCount: rooms.isNotEmpty ? rooms.length * 2 - 1 : 0),
-              ),
-            ],
+                SliverPadding(
+                  padding: const EdgeInsets.only(bottom: 100),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      if (index.isOdd) {
+                        return Padding(
+                          padding: const EdgeInsets.only(left: 82),
+                          child: Container(
+                            height: 0.5,
+                            color: palette.separator.withValues(alpha: 0.5),
+                          ),
+                        );
+                      }
+                      final room = rooms[index ~/ 2];
+                      return _RoomTile(key: ValueKey(room.id), room: room);
+                    }, childCount: rooms.isNotEmpty ? rooms.length * 2 - 1 : 0),
+                  ),
+                ),
+              ],
+            ),
           ),
           Positioned(
             bottom: 80,

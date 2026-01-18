@@ -286,9 +286,18 @@ class _ChatScreenState extends State<ChatScreen> {
                   (context, index) {
                     final event = events[index];
 
-                    if (event.type != EventTypes.Message &&
-                        event.type != EventTypes.Sticker &&
-                        event.type != EventTypes.Encrypted) {
+                    final isVisible =
+                        event.type == EventTypes.Message ||
+                        event.type == EventTypes.Sticker ||
+                        event.type == EventTypes.Encrypted ||
+                        event.type == EventTypes.RoomMember ||
+                        event.type == EventTypes.RoomName ||
+                        event.type == EventTypes.RoomTopic ||
+                        event.type == EventTypes.RoomCreate ||
+                        event.type == 'm.room.encryption' ||
+                        event.type == 'm.key.verification.request';
+
+                    if (!isVisible) {
                       return const SizedBox.shrink();
                     }
 

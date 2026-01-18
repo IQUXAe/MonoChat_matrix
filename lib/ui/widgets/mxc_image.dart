@@ -5,7 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter/cupertino.dart';
 import 'package:matrix/matrix.dart';
 import 'package:monochat/utils/client_download_content_extension.dart';
-import 'package:monochat/utils/global_cache.dart';
+
+import 'package:monochat/services/cache/secure_cache_service.dart';
 import 'package:monochat/utils/matrix_file_extension.dart';
 
 class MxcImage extends StatefulWidget {
@@ -52,9 +53,6 @@ class MxcImage extends StatefulWidget {
 
 class _MxcImageState extends State<MxcImage> {
   static final Map<String, Future<Uint8List?>> _loadingCache = {};
-  static final GlobalCache<String, Uint8List> _globalCache =
-      GlobalCache<String, Uint8List>();
-
   Uint8List? _imageDataNoCache;
   bool _isLoading = false;
 
@@ -68,33 +66,7 @@ class _MxcImageState extends State<MxcImage> {
     return null;
   }
 
-  Uint8List? get _imageData {
-    final globalKey = _globalCacheKey;
-    if (globalKey != null) {
-      final cached = _globalCache.get(globalKey);
-      if (cached != null) return cached;
-    }
-
-    return widget.cacheKey == null
-        ? _imageDataNoCache
-        : _globalCache.get(widget.cacheKey!);
-  }
-
-  set _imageData(Uint8List? data) {
-    if (data == null) return;
-
-    final globalKey = _globalCacheKey;
-    if (globalKey != null) {
-      _globalCache.put(globalKey, data);
-    }
-
-    final cacheKey = widget.cacheKey;
-    if (cacheKey == null) {
-      _imageDataNoCache = data;
-    } else {
-      _globalCache.put(cacheKey, data);
-    }
-  }
+  Uint8List? get _imageData => _imageDataNoCache;
 
   Future<Uint8List?> _load() async {
     if (!mounted) return null;
@@ -145,18 +117,30 @@ class _MxcImageState extends State<MxcImage> {
     return null;
   }
 
-  void _tryLoad() async {
+  Future<void> _tryLoad() async {
     if (_imageData != null || _isLoading || !mounted) {
       return;
     }
 
     final cacheKey = _globalCacheKey ?? widget.cacheKey;
+
+    // 1. Check Secure Cache (L1/L2)
+    if (cacheKey != null) {
+      final cachedData = await SecureCacheService().get(cacheKey);
+      if (cachedData != null && mounted) {
+        setState(() {
+          _imageDataNoCache = cachedData;
+        });
+        return;
+      }
+    }
+
     if (cacheKey != null && _loadingCache.containsKey(cacheKey)) {
       // Wait for existing load operation
       final data = await _loadingCache[cacheKey];
       if (mounted && data != null) {
         setState(() {
-          _imageData = data;
+          _imageDataNoCache = data;
         });
       }
       return;
@@ -181,10 +165,18 @@ class _MxcImageState extends State<MxcImage> {
       }
 
       if (!mounted) return;
+
+      if (data != null) {
+        // Save to Secure Cache
+        if (cacheKey != null) {
+          await SecureCacheService().put(cacheKey, data);
+        }
+      }
+
       setState(() {
         _isLoading = false;
         if (data != null) {
-          _imageData = data;
+          _imageDataNoCache = data;
         }
       });
     } catch (e) {

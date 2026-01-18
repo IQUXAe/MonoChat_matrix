@@ -6,6 +6,7 @@ import 'package:matrix/matrix.dart';
 
 import '../core/exceptions/app_exception.dart';
 import '../domain/repositories/auth_repository.dart';
+import '../services/cache/secure_cache_service.dart';
 
 // =============================================================================
 // AUTH STATE
@@ -24,6 +25,9 @@ enum AuthState {
 
   /// An error occurred during initialization.
   error,
+
+  /// Secure storage is unavailable, preventing safe execution.
+  secureStorageFailure,
 }
 
 // =============================================================================
@@ -91,12 +95,13 @@ class AuthController extends ChangeNotifier {
       _loginStateSubscription?.cancel();
       _loginStateSubscription = _authRepository.loginStateStream.listen((
         loginState,
-      ) {
+      ) async {
         _log.info('Login state change detected: $loginState');
         if (loginState == LoginState.loggedIn) {
           _state = AuthState.authenticated;
         } else if (loginState == LoginState.loggedOut) {
           _state = AuthState.unauthenticated;
+          await SecureCacheService().nuke();
         }
         notifyListeners();
       });
@@ -109,9 +114,15 @@ class AuthController extends ChangeNotifier {
         _state = AuthState.unauthenticated;
       }
     } catch (e, s) {
-      _state = AuthState.error;
-      _errorMessage = e is AppException ? e.userMessage : e.toString();
-      _log.severe('Init Error', e, s);
+      if (e.toString().contains('Secure Storage')) {
+        _state = AuthState.secureStorageFailure;
+        _errorMessage = e.toString();
+        _log.severe('Secure Storage Error', e, s);
+      } else {
+        _state = AuthState.error;
+        _errorMessage = e is AppException ? e.userMessage : e.toString();
+        _log.severe('Init Error', e, s);
+      }
     } finally {
       notifyListeners();
     }

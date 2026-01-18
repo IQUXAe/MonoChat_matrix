@@ -108,25 +108,130 @@ class _LoginScreenState extends State<LoginScreen> {
       final client = MatrixService().client;
       if (client == null) throw Exception('Client not initialized');
 
+      // Determine platform support (Mobile/Web/macOS are "default", others need localhost)
+      final isDefaultPlatform =
+          Platform.isIOS || Platform.isAndroid || Platform.isMacOS || kIsWeb;
+
       // Build redirect URL
       final redirectUrl = kIsWeb
           ? Uri.base.resolve('auth.html').toString()
-          : 'monochat://login';
+          : isDefaultPlatform
+          ? 'monochat://login'
+          : 'http://localhost:3001/login';
 
       final ssoUrl = client.homeserver!.replace(
         path: '/_matrix/client/v3/login/sso/redirect',
         queryParameters: {'redirectUrl': redirectUrl},
       );
 
-      // Open SSO in browser
-      // On desktop, use system browser to avoid plugin issues and provide better UX
+      // Open SSO in browser with a waiting dialog
+      // On desktop (Linux/Windows), we use the system browser with localhost redirect
       final useWebview = Platform.isIOS || Platform.isAndroid;
 
-      final result = await FlutterWebAuth2.authenticate(
+      final callbackUrlScheme = isDefaultPlatform
+          ? 'monochat'
+          : 'http://localhost:3001';
+
+      // Control flag for cancellation
+      bool isCancelled = false;
+
+      // Logic to show dialog and wait for result or cancellation
+      Future<String?> showWaitingDialog() {
+        return showCupertinoDialog<String>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('Waiting for Login'),
+            content: const Padding(
+              padding: EdgeInsets.only(top: 8.0),
+              child: Column(
+                children: [
+                  Text('Please complete login in your browser...'),
+                  SizedBox(height: 12),
+                  CupertinoActivityIndicator(),
+                ],
+              ),
+            ),
+            actions: [
+              CupertinoDialogAction(
+                isDestructiveAction: true,
+                child: const Text('Cancel'),
+                onPressed: () {
+                  isCancelled = true;
+                  Navigator.pop(context, 'cancel');
+                },
+              ),
+            ],
+          ),
+        );
+      }
+
+      // Start authentication task
+      final authTask = FlutterWebAuth2.authenticate(
         url: ssoUrl.toString(),
-        callbackUrlScheme: 'monochat',
+        callbackUrlScheme: callbackUrlScheme,
         options: FlutterWebAuth2Options(useWebview: useWebview),
       );
+
+      // Run dialog and auth in parallel.
+      // We want to wait for auth, but allow dialog to cancel us.
+      // Since we can't externally cancel `authTask`, we just ignore its result if cancelled.
+
+      // We start the dialog. It stays open until:
+      // A) User clicks cancel (returns 'cancel')
+      // B) Auth finishes successfully (we pop it programmatically)
+
+      final dialogFuture = showWaitingDialog();
+
+      // Race!
+      // Actually, we can't race easily because dialogFuture blocks until interaction,
+      // but we want to pop it when authTask finishes.
+
+      String? result;
+
+      try {
+        // Create a future that completes when auth finishes, then pops dialog
+        final authWithPopup = authTask.then((res) {
+          if (!isCancelled && mounted) {
+            Navigator.of(context).pop(); // Close waiting dialog
+          }
+          return res;
+        });
+
+        // Wait for either dialog cancellation (user pressed button) OR auth success (which auto-pops dialog)
+        // Note: If auth finishes, `authWithPopup` pops the dialog, so `dialogFuture` completes too.
+        // If user cancels, `dialogFuture` completes with 'cancel'. `authTask` continues in background but satisfied.
+
+        await Future.any([authWithPopup, dialogFuture]);
+
+        if (isCancelled) {
+          throw Exception('Login cancelled by user');
+        }
+
+        // If we are here, auth finished or dialog finished.
+        // If auth finished, `result` comes from authTask.
+        // We need the result.
+        result = await authTask;
+      } catch (e) {
+        if (isCancelled) {
+          // User explicitly cancelled via dialog - reset UI but show no error
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+          }
+          return;
+        }
+
+        if (mounted) {
+          setState(() {
+            _error = _getFriendlyErrorMessage(e);
+            _isLoading = false;
+          });
+        }
+      }
+
+      if (result == null) throw Exception('No auth result');
 
       // Extract login token
       final token = Uri.parse(result).queryParameters['loginToken'];
@@ -144,11 +249,34 @@ class _LoginScreenState extends State<LoginScreen> {
       // Notify auth controller
       context.read<AuthController>().notifyLoggedIn();
     } catch (e) {
-      setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          // If we are here, it means login token exchange failed
+          _error = _getFriendlyErrorMessage(e);
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  String _getFriendlyErrorMessage(Object error) {
+    final str = error.toString();
+    if (str.contains('cancelled') || str.contains('CANCELED')) {
+      return 'Login cancelled.';
+    }
+    if (str.contains('SocketException') ||
+        str.contains('Network is unreachable')) {
+      return 'Network error. Please check your internet connection.';
+    }
+    if (str.contains('403')) {
+      return 'Invalid credentials or access denied.';
+    }
+    if (str.contains('No login token')) {
+      return 'Login failed. Could not retrieve session token.';
+    }
+
+    // Clean up generic "Exception:" prefix
+    return str.replaceAll('Exception: ', '');
   }
 
   /// Password Login
@@ -309,6 +437,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
                                   fontSize: 17,
+                                  color: CupertinoColors
+                                      .white, // FIX: Enforce white text
                                 ),
                               ),
                       ),
@@ -496,6 +626,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   style: TextStyle(
                                     fontWeight: FontWeight.w600,
                                     fontSize: 17,
+                                    color: CupertinoColors.white,
                                   ),
                                 ),
                         ),

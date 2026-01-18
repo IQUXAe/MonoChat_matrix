@@ -40,4 +40,10 @@ abstract class RoomRepository {
 
   /// Searches for users in the user directory.
   Future<Result<List<Profile>>> searchUsers(String query);
+
+  /// Searches for public rooms.
+  Future<Result<List<PublicRoomsChunk>>> searchPublicRooms(
+    String query, {
+    String? server,
+  });
 }

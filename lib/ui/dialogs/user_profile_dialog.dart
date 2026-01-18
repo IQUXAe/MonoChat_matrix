@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/ui/widgets/presence_builder.dart';
 import 'package:monochat/ui/widgets/mxc_image.dart';
+import 'package:monochat/ui/widgets/avatar_viewer.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
 
 /// iOS-styled user profile dialog.
@@ -220,7 +221,7 @@ class UserProfileDialog extends StatelessWidget {
     Navigator.of(context).push(
       CupertinoPageRoute(
         fullscreenDialog: true,
-        builder: (_) => _AvatarViewer(
+        builder: (_) => AvatarViewer(
           uri: avatarUri,
           client: client,
           displayName: profile.displayName ?? profile.userId,
@@ -490,50 +491,4 @@ class UserProfileDialog extends StatelessWidget {
   }
 }
 
-/// Full screen avatar viewer
-class _AvatarViewer extends StatelessWidget {
-  final Uri uri;
-  final Client client;
-  final String displayName;
-
-  const _AvatarViewer({
-    required this.uri,
-    required this.client,
-    required this.displayName,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.black,
-      navigationBar: CupertinoNavigationBar(
-        backgroundColor: CupertinoColors.black.withValues(alpha: 0.8),
-        border: null,
-        middle: Text(
-          displayName,
-          style: const TextStyle(color: CupertinoColors.white),
-        ),
-        leading: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () => Navigator.pop(context),
-          child: const Icon(CupertinoIcons.xmark, color: CupertinoColors.white),
-        ),
-      ),
-      child: Center(
-        child: InteractiveViewer(
-          panEnabled: true,
-          minScale: 0.5,
-          maxScale: 4.0,
-          child: MxcImage(
-            uri: uri,
-            client: client,
-            width: MediaQuery.of(context).size.width,
-            height: MediaQuery.of(context).size.width,
-            fit: BoxFit.contain,
-            isThumbnail: false,
-          ),
-        ),
-      ),
-    );
-  }
-}
+// internal class removed
