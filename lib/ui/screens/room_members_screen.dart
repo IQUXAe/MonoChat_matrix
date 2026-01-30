@@ -76,26 +76,14 @@ class _RoomMembersScreenState extends State<RoomMembersScreen> {
   void _updateMembers([List<User>? specificMembers]) {
     if (!mounted) return;
     final members = specificMembers ?? widget.room.getParticipants();
-    if (members.isNotEmpty) {
-      setState(() {
-        _members = members
-          ..sort((a, b) => b.powerLevel.compareTo(a.powerLevel));
-        _isLoading = false;
-      });
-      _onSearchChanged();
-    }
+    setState(() {
+      _members = members..sort((a, b) => b.powerLevel.compareTo(a.powerLevel));
+      _isLoading = false;
+    });
+    _onSearchChanged();
   }
 
   Future<void> _initLoading() async {
-    // 1. Show existing cache immediately
-    final cached = widget.room.getParticipants();
-    if (cached.isNotEmpty) {
-      _updateMembers(cached);
-    } else {
-      _updateMembers();
-    }
-
-    // 2. Request fresh list in background
     try {
       final fetched = await widget.room.requestParticipants(
         [...Membership.values]..remove(Membership.leave),

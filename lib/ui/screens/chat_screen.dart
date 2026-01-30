@@ -25,7 +25,6 @@ import 'package:monochat/ui/widgets/chat/message_status_indicator.dart'
     as indicators;
 import 'package:monochat/ui/widgets/chat/read_receipts.dart';
 import 'package:monochat/ui/widgets/chat/system_message_item.dart';
-import 'package:monochat/ui/widgets/chat/typing_indicator_bubble.dart';
 import 'package:monochat/ui/widgets/fallback_file_picker.dart';
 import 'package:monochat/utils/extensions/stream_extension.dart';
 import 'package:provider/provider.dart';
@@ -260,7 +259,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                 ? _buildInviteView(context)
                                 : _buildMessageList(context, controller),
                           ),
-                          if (!isInvite) _buildTypingIndicator(context),
 
                           // Bottom space for floating input
                         ],
@@ -281,22 +279,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         left: 0,
                         right: 0,
                         bottom: MediaQuery.of(context).viewInsets.bottom,
-                        child: FloatingInputBar(
-                          textController: _textController,
-                          controller: controller,
-                          palette: palette,
-                          bottomPadding:
-                              MediaQuery.of(context).viewInsets.bottom > 0
-                              ? 0
-                              : bottomPadding,
-                          onSend: () {
-                            controller.sendMessage(_textController.text);
-                            _textController.clear();
-                            setState(() {});
-                          },
-                          onAttachment: () =>
-                              _showAttachmentMenu(context, controller),
-                          onStateChanged: () => setState(() {}),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildTypingIndicatorText(context),
+                            FloatingInputBar(
+                              textController: _textController,
+                              controller: controller,
+                              palette: palette,
+                              bottomPadding:
+                                  MediaQuery.of(context).viewInsets.bottom > 0
+                                  ? 0
+                                  : bottomPadding,
+                              onSend: () {
+                                controller.sendMessage(_textController.text);
+                                _textController.clear();
+                                setState(() {});
+                              },
+                              onAttachment: () =>
+                                  _showAttachmentMenu(context, controller),
+                              onStateChanged: () => setState(() {}),
+                            ),
+                          ],
                         ),
                       ),
 
@@ -424,7 +429,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildTypingIndicator(BuildContext context) {
+  Widget _buildTypingIndicatorText(BuildContext context) {
     return StreamBuilder(
       stream: widget.room.client.onSync.stream,
       builder: (context, snapshot) {
@@ -434,12 +439,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
         if (typingUsers.isEmpty) return const SizedBox.shrink();
 
-        // New Bubble Style Indicator
+        final palette = context.read<ThemeController>().palette;
+        String text;
+        if (typingUsers.length == 1) {
+          text = '${typingUsers.first.calcDisplayname()} is typing...';
+        } else if (typingUsers.length == 2) {
+          text =
+              '${typingUsers.first.calcDisplayname()} and ${typingUsers[1].calcDisplayname()} are typing...';
+        } else {
+          text = '${typingUsers.length} people are typing...';
+        }
+
         return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).padding.bottom + 60,
+          padding: const EdgeInsets.only(left: 16, bottom: 4),
+          child: Text(
+            text,
+            style: TextStyle(
+              color: palette.secondaryText,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-          child: const TypingIndicatorBubble(),
         );
       },
     );
@@ -1064,9 +1084,7 @@ class _MessageListItemState extends State<_MessageListItem>
                             ? MainAxisAlignment.end
                             : MainAxisAlignment.start,
                         children: [
-                          if (hasReceipts &&
-                              widget.index == 0 &&
-                              (widget.isMe || !widget.event.room.isDirectChat))
+                          if (hasReceipts && widget.index == 0)
                             ReadReceipts(
                               event: widget.event,
                               client: widget.client,

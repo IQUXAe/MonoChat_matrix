@@ -45,44 +45,89 @@ class ReadReceipts extends StatelessWidget {
 
     if (receipts.isEmpty) return const SizedBox.shrink();
 
-    // Show max 5, overlap them
-    final usersToShow = receipts.take(5).toList();
+    // Show max 4, overlap them
+    // If > 4, we show 3 avatars + 1 counter bubble = 4 circles total
+    final maxAvatars = 4;
+    final totalCount = receipts.length;
+    final overflow = totalCount > maxAvatars;
+    // If overflow, we take 3, else we take up to 4
+    final showCount = overflow
+        ? maxAvatars - 1
+        : (totalCount > maxAvatars ? maxAvatars : totalCount);
+
+    final usersToShow = receipts.take(showCount).toList();
 
     return SizedBox(
-      height: 16,
-      width: (usersToShow.length * 12.0) + 14.0, // Estimate width
+      height: 14,
+      width:
+          (usersToShow.length + (overflow ? 1 : 0)) * 12.0 +
+          2.0, // Estimate width
       child: Stack(
         // Allow overflow for overlapping
         clipBehavior: Clip.none,
-        children: List.generate(usersToShow.length, (index) {
-          final userId = usersToShow[index];
+        children: [
+          ...List.generate(usersToShow.length, (index) {
+            final userId = usersToShow[index];
 
-          return Positioned(
-            right: index * 12.0, // Overlap offset
-            child: FutureBuilder<User?>(
-              // Use requestUser which is the standard async method to get a user
-              future: event.room.requestUser(userId),
-              builder: (context, snapshot) {
-                final user = snapshot.data;
+            return Positioned(
+              right: index * 10.0, // Overlap offset
+              child: FutureBuilder<User?>(
+                // Use requestUser which is the standard async method to get a user
+                future: event.room.requestUser(userId),
+                builder: (context, snapshot) {
+                  final user = snapshot.data;
 
-                return Container(
-                  width: 14,
-                  height: 14,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    // Border removed as requested
+                  return Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: CupertinoColors.systemBackground.resolveFrom(
+                          context,
+                        ), // Add separation border
+                        width: 1.5,
+                      ),
+                    ),
+                    child: MatrixAvatar(
+                      avatarUrl: user?.avatarUrl,
+                      name: user?.displayName ?? userId,
+                      client: client,
+                      size: 14,
+                    ),
+                  );
+                },
+              ),
+            );
+          }),
+          if (overflow)
+            Positioned(
+              right: showCount * 10.0,
+              child: Container(
+                width: 14,
+                height: 14,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemGrey5.resolveFrom(context),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: CupertinoColors.systemBackground.resolveFrom(
+                      context,
+                    ),
+                    width: 1.5,
                   ),
-                  child: MatrixAvatar(
-                    avatarUrl: user?.avatarUrl,
-                    name: user?.displayName ?? userId,
-                    client: client,
-                    size: 14,
+                ),
+                child: Text(
+                  '+${totalCount - showCount}',
+                  style: TextStyle(
+                    fontSize: 7,
+                    fontWeight: FontWeight.bold,
+                    color: CupertinoColors.label.resolveFrom(context),
                   ),
-                );
-              },
+                ),
+              ),
             ),
-          );
-        }),
+        ],
       ),
     );
   }
