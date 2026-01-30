@@ -190,7 +190,7 @@ class RoomListController extends ChangeNotifier {
   }
 
   /// Searches for public rooms.
-  Future<List<PublicRoomsChunk>> searchPublicRooms(
+  Future<List<PublishedRoomsChunk>> searchPublicRooms(
     String query, {
     String? server,
   }) async {

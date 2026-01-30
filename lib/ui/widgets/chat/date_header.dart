@@ -21,7 +21,7 @@ class DateHeader extends StatelessWidget {
         // однако уменьшим вес шрифта для соответствия iOS 13-15.
         text.toUpperCase(), 
         style: TextStyle(
-          color: CupertinoColors.systemGrey.withOpacity(0.6),
+          color: CupertinoColors.systemGrey.withValues(alpha: 0.6),
           fontSize: 11,
           fontWeight: FontWeight.w600, // Чуть тоньше чем w700
           letterSpacing: 0.5,

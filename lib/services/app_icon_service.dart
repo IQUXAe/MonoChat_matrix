@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dynamic_icon_plus/flutter_dynamic_icon_plus.dart';
 
@@ -25,7 +26,7 @@ class AppIconService {
         await FlutterDynamicIconPlus.setAlternateIconName(iconName: null);
       }
     } on PlatformException catch (e) {
-      print("Failed to set light icon: $e");
+      debugPrint('Failed to set light icon: $e');
     }
   }
 
@@ -41,7 +42,7 @@ class AppIconService {
         );
       }
     } on PlatformException catch (e) {
-      print("Failed to set dark icon: $e");
+      debugPrint('Failed to set dark icon: $e');
     }
   }
 

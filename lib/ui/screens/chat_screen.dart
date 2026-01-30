@@ -1,16 +1,16 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors, DateUtils;
+import 'package:flutter/services.dart'; // Added
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; /* Added */
 import 'package:gap/gap.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:logging/logging.dart';
 import 'package:matrix/matrix.dart';
-import 'package:provider/provider.dart';
-import 'package:scroll_to_index/scroll_to_index.dart';
-
 import 'package:monochat/controllers/chat_controller.dart';
 import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/data/repositories/matrix_chat_repository.dart';
@@ -19,10 +19,17 @@ import 'package:monochat/services/matrix_service.dart';
 import 'package:monochat/ui/dialogs/send_file_dialog.dart';
 import 'package:monochat/ui/widgets/chat/chat_app_bar.dart';
 import 'package:monochat/ui/widgets/chat/date_header.dart';
+import 'package:monochat/ui/widgets/chat/floating_input_bar.dart';
 import 'package:monochat/ui/widgets/chat/message_bubble.dart';
+import 'package:monochat/ui/widgets/chat/message_status_indicator.dart'
+    as indicators;
+import 'package:monochat/ui/widgets/chat/read_receipts.dart';
+import 'package:monochat/ui/widgets/chat/system_message_item.dart';
+import 'package:monochat/ui/widgets/chat/typing_indicator_bubble.dart';
 import 'package:monochat/ui/widgets/fallback_file_picker.dart';
-import 'package:monochat/ui/widgets/chat/emoji_picker/reaction_picker_sheet.dart';
 import 'package:monochat/utils/extensions/stream_extension.dart';
+import 'package:provider/provider.dart';
+import 'package:scroll_to_index/scroll_to_index.dart';
 
 class ChatScreen extends StatefulWidget {
   final Room room;
@@ -33,18 +40,23 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   static final Logger _log = Logger('ChatScreen');
   final _textController = TextEditingController();
   final AutoScrollController _scrollController = AutoScrollController();
   final ImagePicker _picker = ImagePicker();
+  final _storage = const FlutterSecureStorage();
 
   late final ChatController _controller;
   bool _isExiting = false;
+  bool _showScrollButton = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _restoreScrollPosition();
+    _restoreDraft();
     // Create controller in initState for proper lifecycle management
     final matrixService = context.read<MatrixService>();
     final chatRepository = MatrixChatRepository(matrixService);
@@ -52,6 +64,66 @@ class _ChatScreenState extends State<ChatScreen> {
       room: widget.room,
       chatRepository: chatRepository,
     );
+
+    // Set active room ID for push notification filtering
+    matrixService.setActiveRoom(widget.room.id);
+  }
+
+  Future<void> _restoreScrollPosition() async {
+    try {
+      final key = 'chat_scroll_${widget.room.id}';
+      final savedPos = await _storage.read(key: key);
+      if (savedPos != null) {
+        final pixels = double.tryParse(savedPos);
+        if (pixels != null && pixels > 0) {
+          // If controller attached, jump immediately
+          if (_scrollController.hasClients) {
+            _scrollController.jumpTo(pixels);
+          } else {
+            // Otherwise wait for first frame
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (_scrollController.hasClients) {
+                _scrollController.jumpTo(pixels);
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      _log.warning('Failed to restore scroll position', e);
+    }
+  }
+
+  Future<void> _saveScrollPosition() async {
+    if (!_scrollController.hasClients) return;
+    try {
+      final pixels = _scrollController.position.pixels;
+      final key = 'chat_scroll_${widget.room.id}';
+      if (pixels > 10) {
+        await _storage.write(key: key, value: pixels.toString());
+      } else {
+        // If at bottom, clear it so next open starts fresh at bottom
+        await _storage.delete(key: key);
+      }
+    } catch (e) {
+      _log.warning('Failed to save scroll position', e);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final matrixService = MatrixService();
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _saveScrollPosition();
+      _saveDraft();
+      // Clear active room when going to background
+      matrixService.setActiveRoom(null);
+    } else if (state == AppLifecycleState.resumed) {
+      // Restore active room when coming back
+      matrixService.setActiveRoom(widget.room.id);
+    }
   }
 
   @override
@@ -60,14 +132,20 @@ class _ChatScreenState extends State<ChatScreen> {
     // This happens before dispose and gives us a chance to start the operation
     if (!_isExiting) {
       _isExiting = true;
-      // Use controller's forceSetReadMarker which uses Timeline like FluffyChat
+      // Use controller's forceSetReadMarker which uses Timeline
       _controller.forceSetReadMarker();
+      _saveScrollPosition();
+      _saveDraft();
+
+      // Clear active room
+      MatrixService().setActiveRoom(null);
     }
     super.deactivate();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _textController.dispose();
     _scrollController.dispose();
     _controller.dispose();
@@ -79,12 +157,75 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isExiting) return;
     _isExiting = true;
 
-    // Mark as read BEFORE navigating away using Timeline like FluffyChat
+    // Mark as read BEFORE navigating away using Timeline
     await _controller.forceSetReadMarker();
+    await _saveScrollPosition();
+    await _saveDraft();
+  }
+
+  Future<void> _saveDraft() async {
+    try {
+      final text = _textController.text;
+      final replyId = _controller.replyingTo?.eventId;
+
+      if (text.isEmpty && replyId == null) {
+        await _storage.delete(key: 'chat_draft_${widget.room.id}');
+        return;
+      }
+
+      final draft = {
+        'text': text,
+        'replyId': replyId,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+
+      await _storage.write(
+        key: 'chat_draft_${widget.room.id}',
+        value: jsonEncode(draft),
+      );
+    } catch (e) {
+      _log.warning('Failed to save draft', e);
+    }
+  }
+
+  Future<void> _restoreDraft() async {
+    try {
+      final value = await _storage.read(key: 'chat_draft_${widget.room.id}');
+      if (value == null) return;
+
+      final draft = jsonDecode(value) as Map<String, dynamic>;
+      final text = draft['text'] as String?;
+      final replyId = draft['replyId'] as String?;
+
+      if (text != null && text.isNotEmpty) {
+        _textController.text = text;
+      }
+
+      if (replyId != null) {
+        /*
+        try {
+          // Fetch event to reply
+          // final event = await widget.room.client.getEvent(
+          //   widget.room.id,
+          //   replyId,
+          // );
+          // if (event != null) {
+          //   _controller.setReplyTo(event);
+          // }
+        } catch (e) {
+          _log.warning('Could not restore reply to $replyId', e);
+        }
+        */
+      }
+    } catch (e) {
+      _log.warning('Failed to restore draft', e);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.watch<ThemeController>().palette;
+
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, result) async {
@@ -98,67 +239,183 @@ class _ChatScreenState extends State<ChatScreen> {
           builder: (context, controller, child) {
             final client = controller.client;
             final isInvite = widget.room.membership == Membership.invite;
+            final bottomPadding = MediaQuery.of(context).padding.bottom;
 
             return DropTarget(
               onDragDone: (details) => controller.handleDrop(details.files),
               onDragEntered: (_) => controller.setDragging(true),
               onDragExited: (_) => controller.setDragging(false),
-              child: Stack(
-                children: [
-                  CupertinoPageScaffold(
-                    resizeToAvoidBottomInset: true,
-                    // Remove SafeArea to allow content behind bars
-                    child: Stack(
-                      children: [
-                        // 1. Content Layer (Message List + Input)
-                        Column(
-                          children: [
-                            Expanded(
-                              child: isInvite
-                                  ? _buildInviteView(context)
-                                  : _buildMessageList(context, controller),
-                            ),
-                            if (!isInvite) _buildTypingIndicator(context),
-                            if (!isInvite) _buildInputArea(context, controller),
-                          ],
-                        ),
+              // Use ColoredBox as base layer instead of CupertinoPageScaffold
+              // This eliminates the unwanted background from SafeArea
+              child: ColoredBox(
+                color: palette.scaffoldBackground,
+                child: Stack(
+                  children: [
+                    // 1. Message list (full screen, with padding for input)
+                    Positioned.fill(
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: isInvite
+                                ? _buildInviteView(context)
+                                : _buildMessageList(context, controller),
+                          ),
+                          if (!isInvite) _buildTypingIndicator(context),
 
-                        // 2. Translucent Header Layer
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          child: ChatAppBar(room: widget.room, client: client),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (controller.isDragging)
-                    Container(
-                      color: Colors.black.withOpacity(0.5),
-                      child: const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              CupertinoIcons.cloud_upload_fill,
-                              size: 64,
-                              color: Colors.white,
-                            ),
-                            Gap(16),
-                            Text(
-                              'Drop files here',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
+                          // Bottom space for floating input
+                        ],
                       ),
                     ),
-                ],
+
+                    // 2. Translucent Header
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: ChatAppBar(room: widget.room, client: client),
+                    ),
+
+                    // 3. Floating Input Bar (truly floating, no background)
+                    if (!isInvite)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: MediaQuery.of(context).viewInsets.bottom,
+                        child: FloatingInputBar(
+                          textController: _textController,
+                          controller: controller,
+                          palette: palette,
+                          bottomPadding:
+                              MediaQuery.of(context).viewInsets.bottom > 0
+                              ? 0
+                              : bottomPadding,
+                          onSend: () {
+                            controller.sendMessage(_textController.text);
+                            _textController.clear();
+                            setState(() {});
+                          },
+                          onAttachment: () =>
+                              _showAttachmentMenu(context, controller),
+                          onStateChanged: () => setState(() {}),
+                        ),
+                      ),
+
+                    // 5. Scroll to Bottom Button
+                    if (_showScrollButton)
+                      Positioned(
+                        right: 16,
+                        bottom: MediaQuery.of(context).viewInsets.bottom + 80,
+                        child: StreamBuilder(
+                          stream: widget.room.client.onSync.stream,
+                          builder: (context, _) {
+                            final unreadCount = widget.room.notificationCount;
+                            return GestureDetector(
+                              onTap: () {
+                                _scrollController.animateTo(
+                                  0,
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeOut,
+                                );
+                              },
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: CupertinoColors
+                                          .secondarySystemBackground
+                                          .resolveFrom(context),
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.2,
+                                          ),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                      border: Border.all(
+                                        color: CupertinoColors.systemGrey4
+                                            .resolveFrom(context),
+                                        width: 0.5,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      CupertinoIcons.arrow_down,
+                                      color: CupertinoColors.label.resolveFrom(
+                                        context,
+                                      ),
+                                      size: 24,
+                                    ),
+                                  ),
+                                  if (unreadCount > 0)
+                                    Positioned(
+                                      top: -5,
+                                      right: -5,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: CupertinoColors.activeGreen,
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                          border: Border.all(
+                                            color: palette.scaffoldBackground,
+                                            width: 2,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          unreadCount > 99
+                                              ? '99+'
+                                              : unreadCount.toString(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                    // 4. Drag overlay
+                    if (controller.isDragging)
+                      Container(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        child: const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                CupertinoIcons.cloud_upload_fill,
+                                size: 64,
+                                color: Colors.white,
+                              ),
+                              Gap(16),
+                              Text(
+                                'Drop files here',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             );
           },
@@ -177,18 +434,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
         if (typingUsers.isEmpty) return const SizedBox.shrink();
 
-        final names = typingUsers.map((u) => u.calcDisplayname()).join(', ');
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          alignment: Alignment.centerLeft,
-          child: Text(
-            AppLocalizations.of(context)!.typingIndicator(names),
-            style: const TextStyle(
-              fontSize: 12,
-              fontStyle: FontStyle.italic,
-              color: CupertinoColors.systemGrey,
-            ),
+        // New Bubble Style Indicator
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).padding.bottom + 60,
           ),
+          child: const TypingIndicatorBubble(),
         );
       },
     );
@@ -253,7 +504,28 @@ class _ChatScreenState extends State<ChatScreen> {
               });
             }
 
-            final events = timeline.events;
+            // FILTER VISIBLE EVENTS HERE
+            // Filtering hidden events (like membership changes) significantly improves
+            // rendering performance, especially in large groups.
+            final visibleEvents = timeline.events.where((event) {
+              return (event.type == EventTypes.Message ||
+                      event.type == EventTypes.Sticker ||
+                      event.type == EventTypes.Encrypted ||
+                      event.type == EventTypes.RoomMember ||
+                      event.type == EventTypes.RoomName ||
+                      event.type == EventTypes.RoomTopic ||
+                      event.type == EventTypes.RoomCreate ||
+                      event.type == 'm.room.encryption' ||
+                      event.type == 'm.key.verification.request') &&
+                  event.relationshipType != 'm.replace'; // Filter edits
+            }).toList();
+
+            // Create index map for O(1) lookup in findChildIndexCallback
+            // This prevents O(N) scan per item during layout updates, crucial for large lists
+            final eventIdMap = {
+              for (var i = 0; i < visibleEvents.length; i++)
+                visibleEvents[i].eventId: i,
+            };
 
             return NotificationListener<ScrollNotification>(
               onNotification: (notification) {
@@ -265,7 +537,23 @@ class _ChatScreenState extends State<ChatScreen> {
                   final scrolledUp =
                       notification.metrics.pixels > scrollThreshold;
                   controller.setScrolledUp(scrolledUp);
+                  if (_showScrollButton != scrolledUp) {
+                    setState(() => _showScrollButton = scrolledUp);
+                  }
+
+                  // Active Loading / Pagination
+                  // Significantly increased threshold (2000px) to load history much earlier
+                  // This makes the loading feel "faster" as it happens before the user hits the edge
+                  if (notification.metrics.extentAfter < 2000) {
+                    controller.timeline?.requestHistory();
+                  }
                 }
+
+                // Save scroll position when scrolling stops
+                if (notification is ScrollEndNotification) {
+                  _saveScrollPosition();
+                }
+
                 return false;
               },
               child: ListView.custom(
@@ -275,41 +563,38 @@ class _ChatScreenState extends State<ChatScreen> {
                 physics: const AlwaysScrollableScrollPhysics(
                   parent: BouncingScrollPhysics(),
                 ),
-                cacheExtent: 350.0,
+                // Keep more items in cache for smoother scrolling but not too many for startup speed
+                cacheExtent: 600.0,
                 padding: EdgeInsets.only(
-                  left: 12,
-                  right: 12,
-                  bottom: 8,
+                  left: 8,
+                  right: 8,
+                  bottom:
+                      8 +
+                      50 +
+                      MediaQuery.of(context).padding.bottom +
+                      MediaQuery.of(context).viewInsets.bottom,
                   top: MediaQuery.of(context).padding.top + 60 + 8,
                 ),
+                semanticChildCount: visibleEvents.length,
                 childrenDelegate: SliverChildBuilderDelegate(
                   (context, index) {
-                    final event = events[index];
-
-                    final isVisible =
-                        event.type == EventTypes.Message ||
-                        event.type == EventTypes.Sticker ||
-                        event.type == EventTypes.Encrypted ||
-                        event.type == EventTypes.RoomMember ||
-                        event.type == EventTypes.RoomName ||
-                        event.type == EventTypes.RoomTopic ||
-                        event.type == EventTypes.RoomCreate ||
-                        event.type == 'm.room.encryption' ||
-                        event.type == 'm.key.verification.request';
-
-                    if (!isVisible) {
-                      return const SizedBox.shrink();
-                    }
+                    if (index >= visibleEvents.length) return null;
+                    final event = visibleEvents[index];
 
                     final isMe = event.senderId == controller.client.userID;
-                    final nextEvent = index > 0 ? events[index - 1] : null;
-                    final prevEvent = index < events.length - 1
-                        ? events[index + 1]
+                    final nextEvent = index > 0
+                        ? visibleEvents[index - 1]
+                        : null;
+                    final prevEvent = index < visibleEvents.length - 1
+                        ? visibleEvents[index + 1]
                         : null;
 
                     final showTail =
                         nextEvent == null ||
-                        nextEvent.senderId != event.senderId;
+                        nextEvent.senderId != event.senderId ||
+                        (nextEvent.type ==
+                            EventTypes.RoomMember); // Break on system events
+
                     final showDateHeader =
                         prevEvent == null ||
                         !DateUtils.isSameDay(
@@ -319,7 +604,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
                     final isFirstInGroup =
                         prevEvent == null ||
-                        prevEvent.senderId != event.senderId;
+                        prevEvent.senderId != event.senderId ||
+                        (prevEvent.type == EventTypes.RoomMember);
 
                     return _MessageListItem(
                       key: ValueKey(event.eventId),
@@ -333,16 +619,16 @@ class _ChatScreenState extends State<ChatScreen> {
                       index: index,
                       onSwipeReply: () => controller.setReplyTo(event),
                       timeline: timeline,
+                      onReplyTap: _scrollToEvent,
+                      onReply: () => controller.setReplyTo(event),
+                      onEdit: () => controller.startEditing(event),
+                      onDelete: () => controller.redactEvent(event.eventId),
                     );
                   },
-                  childCount: events.length,
-                  findChildIndexCallback: (Key key) {
+                  childCount: visibleEvents.length,
+                  findChildIndexCallback: (key) {
                     if (key is ValueKey<String>) {
-                      final eventId = key.value;
-                      final index = events.indexWhere(
-                        (e) => e.eventId == eventId,
-                      );
-                      return index >= 0 ? index : null;
+                      return eventIdMap[key.value];
                     }
                     return null;
                   },
@@ -358,7 +644,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showAttachmentMenu(BuildContext context, ChatController controller) {
     showCupertinoModalPopup(
       context: context,
-      builder: (BuildContext context) => CupertinoActionSheet(
+      builder: (context) => CupertinoActionSheet(
         actions: <CupertinoActionSheetAction>[
           if (Platform.isIOS || Platform.isAndroid)
             CupertinoActionSheetAction(
@@ -422,9 +708,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _pickImage(ChatController controller, ImageSource source) async {
     try {
-      final List<XFile> files = [];
+      final files = <XFile>[];
       if (source == ImageSource.camera) {
-        final XFile? image = await _picker.pickImage(
+        final image = await _picker.pickImage(
           source: source,
           imageQuality: 70,
           maxWidth: 1920,
@@ -444,6 +730,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (files.isEmpty) return;
 
       // Show send dialog
+      if (!mounted) return;
       await SendFileDialog.show(
         context,
         room: widget.room,
@@ -458,10 +745,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _pickVideo(ChatController controller) async {
     try {
-      final List<XFile> files = await _picker.pickMultipleMedia();
+      final files = await _picker.pickMultipleMedia();
       if (files.isEmpty) return;
 
       // Show send dialog
+      if (!mounted) return;
       await SendFileDialog.show(
         context,
         room: widget.room,
@@ -491,6 +779,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (files.isEmpty) return;
 
       // Show send dialog
+      if (!mounted) return;
       await SendFileDialog.show(
         context,
         room: widget.room,
@@ -518,322 +807,25 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // --- UI Components for Input ---
 
-  Widget _buildDraftAttachmentList(ChatController controller) {
-    if (controller.attachmentDrafts.isEmpty) return const SizedBox.shrink();
+  void _scrollToEvent(String eventId) {
+    // Find index of event in visible list
+    // Note: We need access to the current list of events.
+    // Ideally we can search the timeline.
+    final timeline = _controller.timeline;
+    if (timeline == null) return;
 
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 120),
-      color: context.watch<ThemeController>().palette.inputBackground,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        scrollDirection: Axis.horizontal,
-        itemCount: controller.attachmentDrafts.length,
-        separatorBuilder: (_, __) => const Gap(12),
-        itemBuilder: (context, index) {
-          final file = controller.attachmentDrafts[index];
-          final ext = file.name.split('.').last.toUpperCase();
-          final isImage = ['JPG', 'JPEG', 'PNG', 'GIF', 'WEBP'].contains(ext);
-
-          return Container(
-            width: 200,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: CupertinoColors.systemBackground,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: CupertinoColors.systemGrey4.withOpacity(0.5),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: CupertinoColors.black.withOpacity(0.05),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                // Image preview with proper caching
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    width: 48,
-                    height: 48,
-                    color: CupertinoColors.systemGrey6,
-                    child: isImage
-                        ? Image.file(
-                            File(file.path),
-                            width: 48,
-                            height: 48,
-                            fit: BoxFit.cover,
-                            // Limit decoded size to 96px (2x for retina)
-                            cacheWidth: 96,
-                            cacheHeight: 96,
-                            errorBuilder: (_, __, ___) => const Icon(
-                              CupertinoIcons.photo,
-                              size: 24,
-                              color: CupertinoColors.systemGrey,
-                            ),
-                          )
-                        : Center(
-                            child: Text(
-                              ext.length > 4 ? 'FILE' : ext,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: CupertinoColors.systemGrey,
-                              ),
-                            ),
-                          ),
-                  ),
-                ),
-                const Gap(8),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        file.name,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const Gap(2),
-                      FutureBuilder<int>(
-                        future: file.length(),
-                        builder: (context, snapshot) {
-                          final size = snapshot.data ?? 0;
-                          String sizeStr = '...';
-                          if (size > 0) {
-                            if (size < 1024)
-                              sizeStr = '$size B';
-                            else if (size < 1024 * 1024)
-                              sizeStr =
-                                  '${(size / 1024).toStringAsFixed(1)} KB';
-                            else
-                              sizeStr =
-                                  '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
-                          }
-                          return Text(
-                            sizeStr,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: CupertinoColors.systemGrey,
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  minSize: 24,
-                  onPressed: () => controller.removeAttachment(file),
-                  child: const Icon(
-                    CupertinoIcons.xmark_circle_fill,
-                    size: 20,
-                    color: CupertinoColors.systemGrey3,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildReplyPreview(BuildContext context, ChatController controller) {
-    if (controller.replyingTo == null) return const SizedBox.shrink();
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: context.watch<ThemeController>().palette.inputBackground,
-      child: Row(
-        children: [
-          const Icon(
-            CupertinoIcons.reply,
-            size: 20,
-            color: CupertinoColors.systemGrey,
-          ),
-          const Gap(12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppLocalizations.of(context)!.replyingTo(
-                    controller.replyingTo?.senderFromMemoryOrFallback
-                            .calcDisplayname() ??
-                        "User",
-                  ),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    color: context.watch<ThemeController>().palette.primary,
-                  ),
-                ),
-                Text(
-                  controller.replyingTo?.body ?? 'Attachment',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: CupertinoColors.label.resolveFrom(context),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            minSize: 0,
-            onPressed: () => controller.setReplyTo(null),
-            child: const Icon(
-              CupertinoIcons.xmark_circle_fill,
-              color: CupertinoColors.systemGrey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInputArea(BuildContext context, ChatController controller) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (controller.processingFiles.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: context.watch<ThemeController>().palette.inputBackground,
-            child: Row(
-              children: [
-                const CupertinoActivityIndicator(radius: 8),
-                const Gap(12),
-                Expanded(
-                  child: Text(
-                    "Uploading ${controller.processingFiles.join(', ')}...",
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: CupertinoColors.systemGrey,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        if (controller.replyingTo != null)
-          _buildReplyPreview(context, controller),
-        _buildDraftAttachmentList(controller), // Added draft list
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-          decoration: BoxDecoration(
-            color: context.watch<ThemeController>().palette.barBackground,
-            border: Border(
-              top: BorderSide(
-                color: context.watch<ThemeController>().palette.separator,
-                width: 0.5,
-              ),
-            ),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                CupertinoButton(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  onPressed: () => _showAttachmentMenu(context, controller),
-                  child: const Icon(
-                    CupertinoIcons.add,
-                    size: 28,
-                    color: CupertinoColors.systemGrey,
-                  ),
-                ),
-                CupertinoButton(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 8,
-                  ),
-                  onPressed: () {
-                    showCupertinoModalPopup(
-                      context: context,
-                      builder: (context) => ReactionPickerSheet(
-                        onEmojiSelected: (emoji) {
-                          Navigator.pop(context);
-                          _textController.text += emoji;
-                          controller.updateTyping(true);
-                        },
-                      ),
-                    );
-                  },
-                  child: const Icon(
-                    CupertinoIcons.smiley,
-                    size: 26,
-                    color: CupertinoColors.systemGrey,
-                  ),
-                ),
-                Expanded(
-                  child: CupertinoTextField(
-                    controller: _textController,
-                    placeholder: AppLocalizations.of(
-                      context,
-                    )!.messagePlaceholder,
-                    minLines: 1,
-                    maxLines: 5,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: context
-                          .watch<ThemeController>()
-                          .palette
-                          .inputBackground,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    onChanged: (text) {
-                      controller.updateTyping(text.isNotEmpty);
-                      // We trigger rebuild to update Send button state potentially,
-                      // but TextField handles its own state.
-                      // setState not strictly needed if we don't change button color reactively.
-                    },
-                    suffix: CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: () {
-                        controller.sendMessage(_textController.text);
-                        _textController.clear();
-                      },
-                      child: Icon(
-                        CupertinoIcons.arrow_up_circle_fill,
-                        size: 32,
-                        color: context.watch<ThemeController>().palette.primary,
-                      ),
-                    ),
-                    onSubmitted: (text) {
-                      controller.sendMessage(text);
-                      _textController.clear();
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
+    final index = timeline.events.indexWhere((e) => e.eventId == eventId);
+    if (index != -1) {
+      _scrollController.scrollToIndex(
+        index,
+        preferPosition: AutoScrollPosition.middle,
+      );
+      // Flash highlight? (Optional polish)
+    } else {
+      // Try to load history if not found?
+      // For now, simpler feedback
+      HapticFeedback.mediumImpact();
+    }
   }
 }
 
@@ -853,6 +845,10 @@ class _MessageListItem extends StatefulWidget {
   final AutoScrollController scrollController;
   final int index;
   final VoidCallback onSwipeReply;
+  final Function(String) onReplyTap;
+  final VoidCallback onReply;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   const _MessageListItem({
     super.key,
@@ -865,6 +861,10 @@ class _MessageListItem extends StatefulWidget {
     required this.scrollController,
     required this.index,
     required this.onSwipeReply,
+    required this.onReplyTap,
+    required this.onReply,
+    required this.onEdit,
+    required this.onDelete,
     required this.timeline,
   });
 
@@ -944,6 +944,31 @@ class _MessageListItemState extends State<_MessageListItem>
 
   @override
   Widget build(BuildContext context) {
+    final isSystemMessage =
+        widget.event.type == EventTypes.RoomMember ||
+        widget.event.type == EventTypes.RoomName ||
+        widget.event.type == EventTypes.RoomTopic ||
+        widget.event.type == EventTypes.RoomCreate ||
+        widget.event.type == 'm.room.encryption';
+
+    if (isSystemMessage) {
+      return AutoScrollTag(
+        key: ValueKey(widget.event.eventId),
+        controller: widget.scrollController,
+        index: widget.index,
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: Column(
+            children: [
+              if (widget.showDateHeader)
+                DateHeader(date: widget.event.originServerTs),
+              SystemMessageItem(event: widget.event),
+            ],
+          ),
+        ),
+      );
+    }
+
     return AutoScrollTag(
       key: ValueKey(widget.event.eventId),
       controller: widget.scrollController,
@@ -980,6 +1005,87 @@ class _MessageListItemState extends State<_MessageListItem>
                   isFirstInGroup: widget.isFirstInGroup,
                   client: widget.client,
                   timeline: widget.timeline,
+                  onReplyTap: widget.onReplyTap,
+                  onReply: widget.onReply,
+                  onEdit: widget.onEdit,
+                  onDelete: widget.onDelete,
+                ),
+                Builder(
+                  builder: (context) {
+                    // Safe extraction logic (duplicated from ReadReceipts widget for consistenct check)
+                    var hasReceipts = false;
+                    try {
+                      // Helper to safely extract ID
+                      String? extractId(dynamic r) {
+                        if (r == null) return null;
+                        try {
+                          return r.userId;
+                        } catch (_) {}
+                        try {
+                          return r.senderId;
+                        } catch (_) {}
+                        try {
+                          return r.uId;
+                        } catch (_) {}
+                        try {
+                          return r.user?.id;
+                        } catch (_) {}
+                        try {
+                          final json = r.toJson();
+                          if (json is Map) {
+                            return json['userId'] ??
+                                json['senderId'] ??
+                                json['user_id'];
+                          }
+                        } catch (_) {}
+                        return null;
+                      }
+
+                      hasReceipts = widget.event.receipts.any((r) {
+                        final id = extractId(r);
+                        return id != null && id != widget.client.userID;
+                      });
+                    } catch (_) {
+                      hasReceipts = false;
+                    }
+
+                    if (!widget.showTail && !hasReceipts) {
+                      return const SizedBox.shrink();
+                    }
+
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        top: 2,
+                        right: widget.isMe ? 12 : 60,
+                        left: widget.isMe ? 60 : 12,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: widget.isMe
+                            ? MainAxisAlignment.end
+                            : MainAxisAlignment.start,
+                        children: [
+                          if (hasReceipts &&
+                              widget.index == 0 &&
+                              (widget.isMe || !widget.event.room.isDirectChat))
+                            ReadReceipts(
+                              event: widget.event,
+                              client: widget.client,
+                            ),
+                          // Only show status indicator if NO receipts and it's my message
+                          // AND it is the very last message in the timeline (index 0)
+                          if (widget.isMe &&
+                              widget.index == 0 &&
+                              !hasReceipts) ...[
+                            const Gap(4),
+                            indicators.MessageStatusIndicator(
+                              event: widget.event,
+                              isMe: widget.isMe,
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

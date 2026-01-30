@@ -79,7 +79,7 @@ class MatrixRoomRepository implements RoomRepository {
   }
 
   @override
-  Future<Result<List<PublicRoomsChunk>>> searchPublicRooms(
+  Future<Result<List<PublishedRoomsChunk>>> searchPublicRooms(
     String query, {
     String? server,
   }) async {
@@ -92,7 +92,7 @@ class MatrixRoomRepository implements RoomRepository {
         server: server,
         filter: PublicRoomQueryFilter(genericSearchTerm: query),
       );
-      return Success(response.chunk ?? []);
+      return Success(response.chunk);
     } catch (e, s) {
       _log.warning('Failed to search public rooms', e, s);
       return Failure(ExceptionMapper.map(e, s));

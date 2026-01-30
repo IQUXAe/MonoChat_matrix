@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -26,7 +25,7 @@ extension ClientDownloadContentExtension on Client {
           )
         : mxc;
 
-    final cachedData = await database?.getFile(cacheKey);
+    final cachedData = await database.getFile(cacheKey);
     if (cachedData != null) return cachedData;
 
     // 2. Prepare URL
@@ -65,7 +64,7 @@ extension ClientDownloadContentExtension on Client {
     // The UI widgets (ClipRRect/BoxDecoration) will handle rounding on the GPU.
 
     // 4. Store in Cache
-    await database?.storeFile(
+    await database.storeFile(
       cacheKey,
       imageData,
       DateTime.now().millisecondsSinceEpoch,
@@ -110,16 +109,16 @@ Future<Uint8List> _isolatedDownload(_DownloadParams params) async {
     }
 
     final chunks = <Uint8List>[];
-    int totalLength = 0;
+    var totalLength = 0;
 
     await for (final chunk in response) {
-      final Uint8List chunkBytes = Uint8List.fromList(chunk);
+      final chunkBytes = Uint8List.fromList(chunk);
       chunks.add(chunkBytes);
       totalLength += chunkBytes.length;
     }
 
     final result = Uint8List(totalLength);
-    int offset = 0;
+    var offset = 0;
     for (final chunk in chunks) {
       result.setRange(offset, offset + chunk.length, chunk);
       offset += chunk.length;

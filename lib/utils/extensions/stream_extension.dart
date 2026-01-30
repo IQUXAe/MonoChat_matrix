@@ -29,7 +29,7 @@ extension StreamExtension on Stream {
 
     final subscription = listen(
       (_) => onMessage?.call(),
-      onDone: () => controller.close(),
+      onDone: controller.close,
       onError: (e, s) => controller.addError(e, s),
     );
 

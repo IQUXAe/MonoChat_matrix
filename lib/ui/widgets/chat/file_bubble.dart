@@ -1,9 +1,10 @@
 import 'dart:typed_data';
+
 import 'package:flutter/cupertino.dart';
-import 'package:matrix/matrix.dart';
+import 'package:flutter/material.dart' show CircularProgressIndicator;
 import 'package:gap/gap.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter/material.dart' show CircularProgressIndicator;
+import 'package:matrix/matrix.dart';
 import 'package:monochat/utils/matrix_file_extension.dart';
 
 class FileBubble extends StatefulWidget {
@@ -38,7 +39,7 @@ class _FileBubbleState extends State<FileBubble> {
 
     try {
       Uint8List bytes;
-      final bool isEncrypted =
+      final isEncrypted =
           widget.event.content['file'] != null ||
           widget.event.type == EventTypes.Encrypted;
 
@@ -49,9 +50,9 @@ class _FileBubbleState extends State<FileBubble> {
         final matrixFile = await widget.event.downloadAndDecryptAttachment();
         bytes = matrixFile.bytes;
       } else {
-        String? url = widget.event.content['url'] as String?;
+        final url = widget.event.content['url'] as String?;
         if (url == null) {
-          throw Exception("No url found");
+          throw Exception('No url found');
         }
         final uri = Uri.parse(url);
         final httpUri = await uri.getDownloadUri(widget.event.room.client);
@@ -61,7 +62,7 @@ class _FileBubbleState extends State<FileBubble> {
         final response = await client.send(request);
 
         final contentLength = response.contentLength;
-        final List<int> accumulatedBytes = [];
+        final accumulatedBytes = <int>[];
 
         await for (final chunk in response.stream) {
           accumulatedBytes.addAll(chunk);
@@ -104,15 +105,15 @@ class _FileBubbleState extends State<FileBubble> {
   @override
   Widget build(BuildContext context) {
     // Reverted visual style but alignment is handled by parent MessageBubble now.
-    // Style: isMe ? activeBlue.withOpacity(0.1) : systemGrey6
-    // Style: isMe ? activeBlue.withOpacity(0.1) : systemGrey6
+    // Style: isMe ? activeBlue.withValues(alpha: 0.1) : systemGrey6
+    // Style: isMe ? activeBlue.withValues(alpha: 0.1) : systemGrey6
     final bg = widget.isMe
-        ? CupertinoColors.activeBlue.withValues(alpha: 0.1)
-        : CupertinoColors.systemGrey6.resolveFrom(context);
+        ? CupertinoColors.white.withValues(alpha: 0.25)
+        : CupertinoColors.black.withValues(alpha: 0.05);
 
     final borderColor = widget.isMe
-        ? CupertinoColors.activeBlue.withValues(alpha: 0.3)
-        : CupertinoColors.systemGrey4.resolveFrom(context);
+        ? CupertinoColors.white.withValues(alpha: 0.4)
+        : CupertinoColors.black.withValues(alpha: 0.1);
 
     final textColor = CupertinoColors.label.resolveFrom(context);
     final iconColor = widget.isMe
@@ -149,9 +150,9 @@ class _FileBubbleState extends State<FileBubble> {
                   const Gap(4),
                   Text(
                     _isDownloading
-                        ? '${(_progress != null ? (_progress! * 100).toStringAsFixed(0) : "...")}%'
+                        ? '${_progress != null ? (_progress! * 100).toStringAsFixed(0) : "..."}%'
                         : _formatSize(size),
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: CupertinoColors
                           .systemGrey, // Always grey for subtitle here
                       fontSize: 12,
@@ -173,7 +174,7 @@ class _FileBubbleState extends State<FileBubble> {
         height: 40,
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.2),
+          color: color.withValues(alpha: 0.2),
           shape: BoxShape.circle,
         ),
         child: CircularProgressIndicator(
@@ -188,7 +189,7 @@ class _FileBubbleState extends State<FileBubble> {
       width: 40,
       height: 40,
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2), // Subtle background for icon
+        color: color.withValues(alpha: 0.2), // Subtle background for icon
         shape: BoxShape.circle,
       ),
       child: Icon(CupertinoIcons.doc_fill, color: color, size: 20),

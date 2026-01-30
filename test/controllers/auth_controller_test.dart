@@ -1,12 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:matrix/matrix.dart' hide Result;
-
+import 'package:mocktail/mocktail.dart';
 import 'package:monochat/controllers/auth_controller.dart';
-import 'package:monochat/core/result.dart';
 import 'package:monochat/core/exceptions/app_exception.dart';
+import 'package:monochat/core/result.dart';
 
 import '../mocks.dart';
 
@@ -15,9 +14,7 @@ void main() {
   late AuthController controller;
   late StreamController<LoginState> loginStateController;
 
-  setUpAll(() {
-    registerFallbackValues();
-  });
+  setUpAll(registerFallbackValues);
 
   setUp(() {
     mockAuthRepo = MockAuthRepository();

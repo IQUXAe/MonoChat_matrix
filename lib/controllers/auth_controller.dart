@@ -159,7 +159,7 @@ class AuthController extends ChangeNotifier {
 
     result.fold((_) => _log.info('Login successful'), (exception) {
       _log.warning('Login Error', exception);
-      throw exception.userMessage;
+      throw exception; // Propagate the full exception for better UI handling
     });
   }
 

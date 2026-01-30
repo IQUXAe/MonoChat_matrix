@@ -36,7 +36,7 @@ class ReactionPickerSheet extends StatelessWidget {
           ),
           Expanded(
             child: EmojiPicker(
-              onEmojiSelected: (Category? category, Emoji emoji) {
+              onEmojiSelected: (category, emoji) {
                 onEmojiSelected(emoji.emoji);
               },
               config: Config(

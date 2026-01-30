@@ -1,5 +1,5 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart'; // For some icons if needed, or stick to Cupertino
+// For some icons if needed, or stick to Cupertino
 import 'package:matrix/encryption.dart';
 
 class KeyVerificationDialog extends StatefulWidget {
@@ -47,14 +47,14 @@ class _KeyVerificationDialogState extends State<KeyVerificationDialog> {
   @override
   Widget build(BuildContext context) {
     Widget content;
-    String title = 'Verification';
-    List<Widget> actions = [];
+    var title = 'Verification';
+    var actions = <Widget>[];
 
     switch (widget.request.state) {
       case KeyVerificationState.askSSSS:
         // Secure Storage / Key Backup Passphrase
         // For simplicity, we might skip this or implement basic input.
-        // FluffyChat implements input. Let's do basic input.
+        // Basic input implementation.
         final controller = TextEditingController();
         title = 'Secure Storage';
         content = Column(
@@ -108,8 +108,8 @@ class _KeyVerificationDialogState extends State<KeyVerificationDialog> {
       case KeyVerificationState.askChoice:
       case KeyVerificationState.waitingAccept:
         title = 'Waiting...';
-        content = Column(
-          children: const [
+        content = const Column(
+          children: [
             CupertinoActivityIndicator(radius: 14),
             SizedBox(height: 16),
             Text('Waiting for partner to accept...'),
@@ -185,8 +185,8 @@ class _KeyVerificationDialogState extends State<KeyVerificationDialog> {
 
       case KeyVerificationState.waitingSas:
         title = 'Waiting...';
-        content = Column(
-          children: const [
+        content = const Column(
+          children: [
             CupertinoActivityIndicator(),
             SizedBox(height: 16),
             Text('Waiting for partner to confirm...'),
@@ -237,8 +237,8 @@ class _KeyVerificationDialogState extends State<KeyVerificationDialog> {
         break;
 
       default:
-        content = Column(
-          children: const [
+        content = const Column(
+          children: [
             CupertinoActivityIndicator(),
             SizedBox(height: 16),
             Text('Incoming verification request...'),

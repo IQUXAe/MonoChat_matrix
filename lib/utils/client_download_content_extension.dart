@@ -4,8 +4,8 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:http/http.dart' as http;
-import 'package:matrix/matrix.dart';
 import 'package:logging/logging.dart';
+import 'package:matrix/matrix.dart';
 
 extension ClientDownloadContentExtension on Client {
   Future<Uint8List> downloadMxcCached(
@@ -45,6 +45,13 @@ extension ClientDownloadContentExtension on Client {
             method: thumbnailMethod,
           )
         : await mxc.getDownloadUri(this);
+
+    if (httpUri.host.isEmpty) {
+      Logger(
+        'DownloadExtension',
+      ).warning('Invalid URI generated (no host): $httpUri for mxc: $mxc');
+      throw ArgumentError('Invalid URI: No host specified in $httpUri');
+    }
 
     final headers = <String, String>{};
     if (accessToken != null) {

@@ -1,19 +1,39 @@
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:ui';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
-
-import 'package:monochat/controllers/theme_controller.dart';
-import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:logging/logging.dart';
+import 'package:monochat/config/app_config.dart';
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/room_list_controller.dart';
+import 'package:monochat/controllers/space_controller.dart';
+import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/data/repositories/matrix_auth_repository.dart';
 import 'package:monochat/data/repositories/matrix_room_repository.dart';
+import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:monochat/services/matrix_service.dart';
 import 'package:monochat/ui/screens/home_screen.dart';
 import 'package:monochat/ui/screens/login_screen.dart';
+import 'package:monochat/utils/notification_background_handler.dart';
 import 'package:provider/provider.dart';
 
-void main() {
+void main() async {
+  // Setup isolate communication for background push notifications (Android only)
+  if (!kIsWeb && Platform.isAndroid) {
+    final port = mainIsolateReceivePort = ReceivePort();
+    IsolateNameServer.removePortNameMapping(AppConfig.mainIsolatePortName);
+    IsolateNameServer.registerPortWithName(
+      port.sendPort,
+      AppConfig.mainIsolatePortName,
+    );
+    await waitForPushIsolateDone();
+  }
+
+  // Our background push shared isolate accesses flutter-internal things very early in the startup process
+  // To make sure that the parts of flutter needed are started up already, we need to ensure that the
+  // widget bindings are initialized already.
   WidgetsFlutterBinding.ensureInitialized();
 
   // Configure logging based on build mode
@@ -23,6 +43,9 @@ void main() {
   final matrixService = MatrixService();
   final authRepository = MatrixAuthRepository(matrixService);
   final roomRepository = MatrixRoomRepository(matrixService);
+
+  // NotificationService is now handled by MatrixService -> BackgroundPush
+  // await NotificationService().init();
 
   runApp(
     MultiProvider(
@@ -121,17 +144,24 @@ class AuthWrapper extends StatelessWidget {
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
-      transitionBuilder: (Widget child, Animation<double> animation) {
+      transitionBuilder: (child, animation) {
         return FadeTransition(opacity: animation, child: child);
       },
-      child: _buildScreen(state),
+      child: _buildScreen(context, state),
     );
   }
 
-  Widget _buildScreen(AuthState state) {
+  Widget _buildScreen(BuildContext context, AuthState state) {
     switch (state) {
       case AuthState.authenticated:
-        return const HomeScreen();
+        // Provide SpaceController when authenticated
+        final client = context.read<AuthController>().client;
+        if (client == null) return const SplashScreen();
+
+        return ChangeNotifierProvider(
+          create: (_) => SpaceController(client),
+          child: const HomeScreen(),
+        );
       case AuthState.unauthenticated:
         return const LoginScreen();
       case AuthState.error:

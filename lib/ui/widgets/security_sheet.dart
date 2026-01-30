@@ -120,14 +120,15 @@ class _SecuritySheetState extends State<SecuritySheet> {
                   ..._devices!.map((device) {
                     // Check current device. property might be deviceID or deviceId depending on SDK version
                     // Standard is deviceID usually for client, but device.deviceId for Device object?
-                    // FluffyChat checked client.deviceID.
-                    if (device.deviceId == widget.client.deviceID)
+                    // Checked client.deviceID.
+                    if (device.deviceId == widget.client.deviceID) {
                       return const SizedBox();
+                    }
 
                     // We default IsVerified to false as we can't reliably check it without complex lookups right now
                     // and we want to allow verification.
                     return _buildDeviceItem(context, device, false);
-                  }).toList(),
+                  }),
               ],
             ),
           ),
@@ -167,7 +168,7 @@ class _SecuritySheetState extends State<SecuritySheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  device.displayName ?? device.deviceId ?? 'Unknown Device',
+                  device.displayName ?? device.deviceId,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: palette.text,
@@ -264,7 +265,7 @@ class _SecuritySheetState extends State<SecuritySheet> {
 
   Future<void> _startVerification(BuildContext context, Device device) async {
     try {
-      // Logic adapted from FluffyChat
+      // Logic adapted from standard implementation
       final userDeviceKeys =
           widget.client.userDeviceKeys[widget.client.userID!];
       if (userDeviceKeys == null) {
@@ -280,13 +281,13 @@ class _SecuritySheetState extends State<SecuritySheet> {
 
       final request = await deviceKeys.startVerification();
 
-      if (mounted) {
+      if (context.mounted) {
         await KeyVerificationDialog.show(context, request);
         // Reload list logic if needed
         _loadDevices();
       }
     } catch (e) {
-      if (mounted) {
+      if (context.mounted) {
         showCupertinoDialog(
           context: context,
           builder: (c) => CupertinoAlertDialog(

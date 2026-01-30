@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:monochat/core/result.dart';
 import 'package:monochat/core/exceptions/app_exception.dart';
+import 'package:monochat/core/result.dart';
 
 void main() {
   group('Result', () {

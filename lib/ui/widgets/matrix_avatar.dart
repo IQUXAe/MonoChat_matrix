@@ -9,6 +9,7 @@ class MatrixAvatar extends StatelessWidget {
   final double size;
   final Client client;
   final String? userId; // Added for presence
+  final double? borderRadius;
 
   const MatrixAvatar({
     super.key,
@@ -17,6 +18,7 @@ class MatrixAvatar extends StatelessWidget {
     required this.client,
     this.userId,
     this.size = 40.0,
+    this.borderRadius,
   });
 
   @override
@@ -26,7 +28,7 @@ class MatrixAvatar extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         color: CupertinoColors.systemGrey5,
-        borderRadius: BorderRadius.circular(size / 2),
+        borderRadius: BorderRadius.circular(borderRadius ?? size / 2),
       ),
       clipBehavior: Clip.hardEdge,
       child: _buildImage(context),
@@ -46,7 +48,7 @@ class MatrixAvatar extends StatelessWidget {
             userId: userId!,
             builder: (context, presence) {
               final isOnline = presence?.presence == PresenceType.online;
-              // Only show if known state? FluffyChat usually shows grey for offline.
+              // Only show if known state?
               // Let's mimic iOS: Green dot for online. Maybe nothing for offline?
               // The user requested "indicators online/offline".
 

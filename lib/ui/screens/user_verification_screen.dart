@@ -95,7 +95,7 @@ class _UserVerificationScreenState extends State<UserVerificationScreen> {
                     padding: const EdgeInsets.only(bottom: 16.0),
                     child: Text(
                       'User: ${widget.userId}',
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 13,
                         color: CupertinoColors.systemGrey,
                       ),
@@ -115,7 +115,7 @@ class _UserVerificationScreenState extends State<UserVerificationScreen> {
                   else
                     ..._devices!.map((device) {
                       return _buildDeviceItem(context, device);
-                    }).toList(),
+                    }),
                 ],
               ),
       ),
@@ -184,12 +184,12 @@ class _UserVerificationScreenState extends State<UserVerificationScreen> {
     try {
       final request = await device.startVerification();
 
-      if (mounted) {
+      if (context.mounted) {
         await KeyVerificationDialog.show(context, request);
         _loadDevices();
       }
     } catch (e) {
-      if (mounted) {
+      if (context.mounted) {
         showCupertinoDialog(
           context: context,
           builder: (c) => CupertinoAlertDialog(
@@ -216,12 +216,12 @@ class _UserVerificationScreenState extends State<UserVerificationScreen> {
 
       final request = await userKeys.startVerification();
 
-      if (mounted) {
+      if (context.mounted) {
         await KeyVerificationDialog.show(context, request);
         _loadDevices();
       }
     } catch (e) {
-      if (mounted) {
+      if (context.mounted) {
         showCupertinoDialog(
           context: context,
           builder: (c) => CupertinoAlertDialog(

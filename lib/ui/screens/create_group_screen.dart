@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:matrix/matrix.dart' as matrix;
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/theme_controller.dart';
+import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:monochat/ui/screens/chat_screen.dart';
 import 'package:provider/provider.dart';
 
@@ -21,6 +22,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   final _aliasController = TextEditingController();
 
   bool _isPublic = false;
+  bool _isSearchable = true;
   bool _isEncrypted = true;
   bool _isLoading = false;
   XFile? _avatarFile;
@@ -99,7 +101,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           ? matrix.CreateRoomPreset.publicChat
           : matrix.CreateRoomPreset.privateChat;
 
-      final visibility = _isPublic
+      final visibility = _isPublic && _isSearchable
           ? matrix.Visibility.public
           : matrix.Visibility.private;
 
@@ -351,6 +353,55 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                           style: TextStyle(color: palette.secondaryText),
                         ),
                         style: TextStyle(color: palette.text),
+                      ),
+                    ),
+                  ],
+
+                  // Searchable Toggle (Only for public groups)
+                  if (_isPublic) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(left: 56, right: 0),
+                      child: Container(height: 0.5, color: palette.separator),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(CupertinoIcons.search, color: palette.text),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  AppLocalizations.of(context)!.searchable,
+                                  style: TextStyle(
+                                    color: palette.text,
+                                    fontSize: 17,
+                                  ),
+                                ),
+                                Text(
+                                  AppLocalizations.of(
+                                    context,
+                                  )!.searchableDescription,
+                                  style: TextStyle(
+                                    color: palette.secondaryText,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          CupertinoSwitch(
+                            value: _isSearchable,
+                            onChanged: (val) {
+                              setState(() => _isSearchable = val);
+                            },
+                          ),
+                        ],
                       ),
                     ),
                   ],

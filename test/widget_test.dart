@@ -9,7 +9,7 @@ import 'package:monochat/services/matrix_service.dart';
 import 'package:provider/provider.dart';
 
 void main() {
-  testWidgets('App smoke test', (WidgetTester tester) async {
+  testWidgets('App smoke test', (tester) async {
     final matrixService = MatrixService();
     final authRepository = MatrixAuthRepository(matrixService);
     final roomRepository = MatrixRoomRepository(matrixService);

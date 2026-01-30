@@ -1,5 +1,6 @@
-import 'package:flutter/cupertino.dart';
 import 'dart:math' as math;
+
+import 'package:flutter/cupertino.dart';
 
 class NavIcons {
   static const double strokeWidth = 1.5; // Fine stroke
@@ -95,19 +96,20 @@ class _SettingsPainter extends CustomPainter {
     if (isFilled) {
       // Solid Gear
       final path = Path();
-      final int teeth = 8;
-      final double outerR = radius;
-      final double innerR = radius * 0.75;
+      const teeth = 8;
+      final outerR = radius;
+      final innerR = radius * 0.75;
 
-      for (int i = 0; i < teeth * 2; i++) {
-        double angle = (math.pi * 2 * i) / (teeth * 2);
-        double r = (i % 2 == 0) ? outerR : innerR;
-        double x = center.dx + r * math.cos(angle);
-        double y = center.dy + r * math.sin(angle);
-        if (i == 0)
+      for (var i = 0; i < teeth * 2; i++) {
+        final angle = (math.pi * 2 * i) / (teeth * 2);
+        final r = (i % 2 == 0) ? outerR : innerR;
+        final x = center.dx + r * math.cos(angle);
+        final y = center.dy + r * math.sin(angle);
+        if (i == 0) {
           path.moveTo(x, y);
-        else
+        } else {
           path.lineTo(x, y);
+        }
       }
       path.close();
 

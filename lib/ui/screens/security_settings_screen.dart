@@ -1,6 +1,9 @@
 import 'package:flutter/cupertino.dart';
 import 'package:matrix/matrix.dart';
+// import 'package:matrix/encryption.dart'; // Sometimes needed for extension methods
 import 'package:monochat/controllers/theme_controller.dart';
+import 'package:monochat/services/matrix_service.dart';
+import 'package:monochat/ui/widgets/bootstrap_dialog.dart';
 import 'package:provider/provider.dart';
 
 class SecuritySettingsScreen extends StatefulWidget {
@@ -34,6 +37,9 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
               ),
               builder: (context, snapshot) {
                 final isEnabled = snapshot.data ?? false;
+                final hasRemoteBackup =
+                    widget.client.accountData['m.secret_storage.default_key'] !=
+                    null;
 
                 return Container(
                   padding: const EdgeInsets.all(16),
@@ -62,7 +68,9 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                                 Text(
                                   isEnabled
                                       ? 'Secure Backup Active'
-                                      : 'Backup Not Active',
+                                      : (hasRemoteBackup
+                                            ? 'Restore Backup'
+                                            : 'Backup Not Active'),
                                   style: TextStyle(
                                     fontWeight: FontWeight.w600,
                                     color: palette.text,
@@ -73,7 +81,9 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                                 Text(
                                   isEnabled
                                       ? 'Your keys are backed up safely.'
-                                      : 'Enable cross-signing to backup your keys.',
+                                      : (hasRemoteBackup
+                                            ? 'Restore messages from cloud backup.'
+                                            : 'Enable cross-signing to backup your keys.'),
                                   style: TextStyle(
                                     color: palette.secondaryText,
                                     fontSize: 13,
@@ -84,8 +94,26 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                           ),
                         ],
                       ),
-                      if (!isEnabled) ...[
-                        const SizedBox(height: 16),
+                      const SizedBox(height: 16),
+                      if (isEnabled)
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          child: const Text(
+                            'Reset Secure Backup',
+                            style: TextStyle(color: CupertinoColors.systemRed),
+                          ),
+                          onPressed: () => _resetBackup(context),
+                        )
+                      else if (hasRemoteBackup)
+                        CupertinoButton.filled(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 0,
+                            horizontal: 20,
+                          ),
+                          child: const Text('Restore from Backup'),
+                          onPressed: () => _bootstrap(context),
+                        )
+                      else
                         CupertinoButton.filled(
                           padding: const EdgeInsets.symmetric(
                             vertical: 0,
@@ -94,7 +122,6 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                           child: const Text('Bootstrap'),
                           onPressed: () => _bootstrap(context),
                         ),
-                      ],
                     ],
                   ),
                 );
@@ -103,9 +130,27 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
 
             const SizedBox(height: 24),
             // Privacy Toggles
-            _buildToggleItem(context, 'Read Receipts', true, (v) {}),
-            _buildToggleItem(context, 'Typing Indicators', true, (v) {}),
-            _buildToggleItem(context, 'Send Crash Reports', false, (v) {}),
+            // Privacy Toggles
+            _buildToggleItem(
+              context,
+              'Read Receipts',
+              MatrixService().sendReadReceipts,
+              (v) {
+                setState(() {
+                  MatrixService().setSendReadReceipts(v);
+                });
+              },
+            ),
+            _buildToggleItem(
+              context,
+              'Typing Indicators',
+              MatrixService().sendTypingIndicators,
+              (v) {
+                setState(() {
+                  MatrixService().setSendTypingIndicators(v);
+                });
+              },
+            ),
           ],
         ),
       ),
@@ -143,20 +188,50 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   }
 
   Future<void> _bootstrap(BuildContext context) async {
-    showCupertinoDialog(
+    // If not enabled or needs setup, show full bootstrap dialog
+    // This handles both setup and restore
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => BootstrapDialog(client: widget.client),
+        fullscreenDialog: true,
+      ),
+    );
+    setState(() {});
+  }
+
+  Future<void> _resetBackup(BuildContext context) async {
+    // Show confirmation dialog before resetting
+    final confirm = await showCupertinoDialog<bool>(
       context: context,
-      builder: (c) => CupertinoAlertDialog(
-        title: const Text('Bootstrap'),
+      builder: (ctx) => CupertinoAlertDialog(
+        title: const Text('Reset Secure Backup?'),
         content: const Text(
-          'Implementation of secure backup bootstrap is pending.',
+          'This will delete your current backup and create a new one. You will lose access to old encrypted messages if you do not have the old recovery key.',
         ),
         actions: [
           CupertinoDialogAction(
-            child: const Text('OK'),
-            onPressed: () => Navigator.pop(c),
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            child: const Text('Reset'),
+            onPressed: () => Navigator.pop(ctx, true),
           ),
         ],
       ),
     );
+
+    if (confirm != true) return;
+
+    if (!context.mounted) return;
+
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => BootstrapDialog(client: widget.client, wipe: true),
+        fullscreenDialog: true,
+      ),
+    );
+    setState(() {});
   }
 }

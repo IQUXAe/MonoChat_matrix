@@ -9,7 +9,8 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sodium_libs/sodium_libs.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
+import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
 
 /// A high-performance, two-level secure caching system using SQLite + Potassium (libsodium).
 ///
@@ -31,8 +32,8 @@ class SecureCacheService {
   // ===========================================================================
 
   static const String _kKeyStorageName =
-      'secure_cache_key_v2_sodium'; // New key ver
-  static const String _kDbName = 'secure_cache_v2_sodium.db'; // New db
+      'secure_cache_key_v3_sodium'; // Bumped version for new schema
+  static const String _kDbName = 'secure_cache_v3_sodium.db'; // Bumped db
   static const int _kRamCacheSize = 50; // Max items in RAM
   static const Duration _kCacheValidity = Duration(days: 30); // Auto-expire
 
@@ -40,9 +41,10 @@ class SecureCacheService {
   // STATE
   // ===========================================================================
 
-  Database? _db;
+  ffi.Database? _db;
   Sodium? _sodium;
   SecureKey? _encryptionKey;
+  String? _dbPassword;
   final _storage = const FlutterSecureStorage();
 
   // L1 RAM Cache (LRU)
@@ -63,17 +65,11 @@ class SecureCacheService {
       // 1. Initialize Sodium (C++ FFI)
       _sodium = await SodiumInit.init();
 
-      // 2. Initialize FFI for desktop if needed
-      if (Platform.isWindows || Platform.isMacOS) {
-        sqfliteFfiInit();
-        databaseFactory = databaseFactoryFfi;
-      }
+      // 2. Load or Create Encryption Key
+      await _setupEncryptionAndGetPassword();
 
-      // 3. Load or Create Encryption Key
-      await _setupEncryption();
-
-      // 4. Open Database
-      await _openDatabase();
+      // 3. Open Database (using encryption key as password)
+      await _openDatabase(_dbPassword ?? '');
 
       _isInitialized = true;
       _log.info('Secure Cache initialized successfully.');
@@ -85,100 +81,92 @@ class SecureCacheService {
     }
   }
 
-  Future<void> _setupEncryption() async {
+  Future<void> _setupEncryptionAndGetPassword() async {
     const storage = FlutterSecureStorage();
-
     try {
-      String? keyBase64;
-      try {
-        keyBase64 = await storage.read(key: _kKeyStorageName);
-      } catch (e) {
-        _log.warning('Secure storge read failed (L2 Cache)', e);
-        // Proceed to generate ephemeral key or try to overwrite if getting explicit error
-      }
-
+      var keyBase64 = await storage.read(key: _kKeyStorageName);
       if (keyBase64 == null) {
-        _log.info('Generating new secure cache key (Sodium)...');
-        // Generate secure random key using Sodium
+        _log.info('Generating new secure cache key...');
         final keyBytes = _sodium!.randombytes.buf(
           _sodium!.crypto.secretBox.keyBytes,
         );
-        final key = _sodium!.secureCopy(keyBytes);
-
-        try {
-          await storage.write(
-            key: _kKeyStorageName,
-            value: base64Encode(keyBytes),
-          );
-        } catch (e) {
-          _log.warning(
-            'Secure storage write failed (L2 Cache). Key is ephemeral.',
-            e,
-          );
-        }
-        _encryptionKey = key;
-      } else {
-        try {
-          final keyBytes = base64Decode(keyBase64);
-          if (keyBytes.length != _sodium!.crypto.secretBox.keyBytes) {
-            throw Exception('Invalid key length');
-          }
-          _encryptionKey = _sodium!.secureCopy(Uint8List.fromList(keyBytes));
-        } catch (e) {
-          _log.warning(
-            'Invalid key format in storage, regenerating temporary key.',
-            e,
-          );
-          final keyBytes = _sodium!.randombytes.buf(
-            _sodium!.crypto.secretBox.keyBytes,
-          );
-          _encryptionKey = _sodium!.secureCopy(keyBytes);
-        }
+        keyBase64 = base64Encode(keyBytes);
+        await storage.write(key: _kKeyStorageName, value: keyBase64);
       }
+
+      // keyBase64 IS the password for SQLCipher
+      _dbPassword = keyBase64;
+
+      // Also setup Sodium key for the content encryption
+      final keyBytes = base64Decode(keyBase64);
+      _encryptionKey = _sodium!.secureCopy(Uint8List.fromList(keyBytes));
     } catch (e) {
-      _log.severe(
-        'Secure storage access failed (Keychain locked?). '
-        'Using temporary in-memory key for this session. '
-        'L2 Cache will NOT survive app restart.',
-        e,
-      );
-      // Fallback: Use an in-memory key via Sodium
+      _log.severe('Key setup failed', e);
+      // Fallback to ephemeral
       final keyBytes = _sodium!.randombytes.buf(
         _sodium!.crypto.secretBox.keyBytes,
       );
+      _dbPassword = base64Encode(keyBytes);
       _encryptionKey = _sodium!.secureCopy(keyBytes);
     }
   }
 
-  Future<void> _openDatabase() async {
+  Future<void> _openDatabase(String password) async {
     final dir = await getApplicationSupportDirectory();
     final dbPath = p.join(dir.path, _kDbName);
 
-    _db = await databaseFactory.openDatabase(
-      dbPath,
-      options: OpenDatabaseOptions(
-        version: 1,
-        onCreate: (db, version) async {
-          await db.execute('''
-            CREATE TABLE cache (
-              key TEXT PRIMARY KEY,
-              data BLOB,
-              nonce TEXT,
-              timestamp INTEGER
-            )
-          ''');
-          await db.execute('CREATE INDEX idx_timestamp ON cache (timestamp)');
-        },
-      ),
-    );
+    Future<void> onCreate(ffi.Database db, int version) async {
+      await db.execute('''
+        CREATE TABLE cache (
+          key TEXT PRIMARY KEY,
+          data BLOB,
+          nonce TEXT,
+          timestamp INTEGER,
+          category TEXT
+        )
+      ''');
+      await db.execute('CREATE INDEX idx_timestamp ON cache (timestamp)');
+      await db.execute('CREATE INDEX idx_category ON cache (category)');
+    }
+
+    try {
+      if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+        _db = await ffi.databaseFactoryFfi.openDatabase(
+          dbPath,
+          options: ffi.OpenDatabaseOptions(
+            version: 1,
+            onCreate: onCreate,
+            onConfigure: (db) async {
+              await db.execute("PRAGMA key = '$password'");
+            },
+          ),
+        );
+      } else {
+        _db = await sqlcipher.openDatabase(
+          dbPath,
+          password: password,
+          version: 1,
+          onCreate: onCreate,
+        );
+      }
+    } catch (e) {
+      _log.severe(
+        'Failed to open encrypted DB. Key might be invalid or DB corrupted.',
+        e,
+      );
+      // CRITICAL: Do NOT delete the DB file automatically.
+      // If the key is wrong (e.g. secure storage glitch), we don't want to wipe user data.
+      // We explicitly rethrow to let the app handle the failure (e.g. show error screen).
+      rethrow;
+    }
   }
 
   // ===========================================================================
   // OPERATIONS
   // ===========================================================================
 
-  /// Puts data into the cache (L1 + L2).
-  Future<void> put(String key, Uint8List data) async {
+  /// Puts data into the cache (L1 + L2) with optional category.
+  Future<void> put(String key, Uint8List data, {String? category}) async {
     if (!_isInitialized) await init();
 
     // 1. Write to RAM (L1)
@@ -186,12 +174,7 @@ class SecureCacheService {
 
     // 2. Write to Disk (L2) - Encrypted via Sodium
     try {
-      if (_encryptionKey == null || _sodium == null) {
-        _log.warning(
-          'Skipping L2 cache write: Encryption key not initialized.',
-        );
-        return;
-      }
+      if (_encryptionKey == null || _sodium == null) return;
 
       // Sodium: Generate Nonce
       final nonce = _sodium!.randombytes.buf(
@@ -211,7 +194,8 @@ class SecureCacheService {
           'data': encrypted,
           'nonce': base64Encode(nonce),
           'timestamp': DateTime.now().millisecondsSinceEpoch,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+          'category': category,
+        }, conflictAlgorithm: sqlcipher.ConflictAlgorithm.replace);
       }
     } catch (e) {
       _log.warning('Failed to write to persistent cache', e);
@@ -278,40 +262,51 @@ class SecureCacheService {
       }
     } catch (e) {
       _log.warning('Failed to read/decrypt from cache', e);
-      try {
-        if (_db != null && _db!.isOpen) {
-          await _db!.delete('cache', where: 'key = ?', whereArgs: [key]);
-        }
-      } catch (_) {}
       return null;
     }
   }
 
   // ===========================================================================
-  // MAINTENANCE
+  // CATEGORY MAINTENANCE
   // ===========================================================================
 
-  Future<int> getCacheSize() async {
+  /// Gets the size (in bytes) of a specific category, or all if null.
+  Future<int> getCacheSize({String? category}) async {
     if (!_isInitialized) return 0;
     try {
-      int size = 0;
-      // 1. DB Size (approximate from data length)
+      var size = 0;
       if (_db != null && _db!.isOpen) {
-        final result = await _db!.rawQuery(
-          'SELECT SUM(length(data)) as size FROM cache',
-        );
+        final where = category != null ? 'WHERE category = ?' : '';
+        final args = category != null ? [category] : [];
+        final query = 'SELECT SUM(length(data)) as size FROM cache $where';
+
+        final result = await _db!.rawQuery(query, args);
         if (result.isNotEmpty && result.first['size'] != null) {
           size += result.first['size'] as int;
         }
       }
-      // 2. RAM Cache
-      // Estimate ram size?
-      for (var data in _ramCache.values) {
-        size += data.length;
-      }
       return size;
     } catch (_) {
       return 0;
+    }
+  }
+
+  /// Clears items of a specific category.
+  Future<void> clearCategory(String category) async {
+    if (!_isInitialized) return;
+    try {
+      // Clear from RAM first (simple clear for now, could be smarter)
+      _ramCache.clear();
+
+      if (_db != null && _db!.isOpen) {
+        await _db!.delete(
+          'cache',
+          where: 'category = ?',
+          whereArgs: [category],
+        );
+      }
+    } catch (e) {
+      _log.warning('Failed to clear category: $category', e);
     }
   }
 
@@ -321,7 +316,6 @@ class SecureCacheService {
     }
     _ramCache[key] = data;
 
-    // Enforce size limit
     if (_ramCache.length > _kRamCacheSize) {
       _ramCache.remove(_ramCache.keys.first);
     }
@@ -334,19 +328,15 @@ class SecureCacheService {
   /// Completely wipes the cache and keys.
   Future<void> nuke() async {
     _log.warning('NUKING SECURE CACHE...');
-
-    // Clear RAM
     _ramCache.clear();
-    _encryptionKey?.dispose(); // Dispose Sodium key
+    _encryptionKey?.dispose();
     _encryptionKey = null;
 
     try {
-      // Close DB
       if (_db != null && _db!.isOpen) {
         await _db!.close();
       }
 
-      // Delete DB File
       final dir = await getApplicationSupportDirectory();
       final dbPath = p.join(dir.path, _kDbName);
       final file = File(dbPath);
@@ -357,14 +347,10 @@ class SecureCacheService {
       _log.severe('Error deleting DB file', e);
     }
 
-    // Delete Key
     try {
       await _storage.delete(key: _kKeyStorageName);
     } catch (e) {
-      _log.warning(
-        'Failed to delete secure key (may not exist or keychain locked)',
-        e,
-      );
+      _log.warning('Failed to delete secure key', e);
     }
 
     _db = null;

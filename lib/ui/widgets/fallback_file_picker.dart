@@ -39,7 +39,7 @@ class _FallbackFilePickerState extends State<FallbackFilePicker> {
   Future<void> _loadFiles() async {
     setState(() => _isLoading = true);
     try {
-      final List<FileSystemEntity> entities = await _currentDir.list().toList();
+      final entities = await _currentDir.list().toList();
 
       // Sort: Directories first, then files. Alphabetical.
       entities.sort((a, b) {
@@ -95,8 +95,8 @@ class _FallbackFilePickerState extends State<FallbackFilePicker> {
               children: [
                 CupertinoButton(
                   padding: EdgeInsets.zero,
-                  child: const Icon(CupertinoIcons.arrow_up_circle),
                   onPressed: _goUp,
+                  child: const Icon(CupertinoIcons.arrow_up_circle),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -119,7 +119,7 @@ class _FallbackFilePickerState extends State<FallbackFilePicker> {
             child: _isLoading
                 ? const Center(child: CupertinoActivityIndicator())
                 : _files.isEmpty
-                ? const Center(child: Text("Empty or Access Denied"))
+                ? const Center(child: Text('Empty or Access Denied'))
                 : ListView.builder(
                     itemCount: _files.length,
                     itemBuilder: (context, index) {
@@ -154,7 +154,7 @@ class _FallbackFilePickerState extends State<FallbackFilePicker> {
                           title: Text(name),
                           onTap: () {
                             if (isDir) {
-                              _navigate(entity as Directory);
+                              _navigate(entity);
                             } else {
                               widget.onFileSelected(entity as File);
                               Navigator.pop(context);

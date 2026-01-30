@@ -215,17 +215,23 @@ class BackgroundUploader {
       client.close();
 
       if (response.statusCode == 200) {
-        // Parse MXC URI from response
-        final match = RegExp(
-          r'"content_uri"\s*:\s*"([^"]+)"',
-        ).firstMatch(responseBody);
-        if (match != null) {
-          return UploadResponse(id: request.id, mxcUri: match.group(1));
+        try {
+          final json = jsonDecode(responseBody) as Map<String, dynamic>;
+          final contentUri = json['content_uri'] as String?;
+
+          if (contentUri != null) {
+            return UploadResponse(id: request.id, mxcUri: contentUri);
+          }
+          return UploadResponse(
+            id: request.id,
+            error: 'Missing content_uri in response: $responseBody',
+          );
+        } catch (e) {
+          return UploadResponse(
+            id: request.id,
+            error: 'Failed to parse JSON response: $e',
+          );
         }
-        return UploadResponse(
-          id: request.id,
-          error: 'Failed to parse response: $responseBody',
-        );
       } else {
         return UploadResponse(
           id: request.id,

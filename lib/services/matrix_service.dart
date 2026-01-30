@@ -1,5 +1,5 @@
+import 'dart:ffi'; // For DynamicLibrary
 import 'dart:io';
-
 import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -7,11 +7,37 @@ import 'package:flutter_vodozemac/flutter_vodozemac.dart' as vod;
 import 'package:logging/logging.dart';
 import 'package:matrix/encryption.dart';
 import 'package:matrix/matrix.dart';
+import 'package:monochat/core/network/app_http_client.dart';
+import 'package:monochat/utils/background_push.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
+import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
+import 'package:sqlite3/open.dart';
 
 import 'background_sync_service.dart';
+
+DynamicLibrary _loadDynamicLibrary(String name) {
+  if (Platform.isLinux) {
+    try {
+      return DynamicLibrary.open('lib$name.so');
+    } catch (_) {
+      try {
+        return DynamicLibrary.open('/usr/lib/lib$name.so');
+      } catch (_) {
+        return DynamicLibrary.open('/usr/local/lib/lib$name.so');
+      }
+    }
+  }
+  if (Platform.isWindows) {
+    return DynamicLibrary.open('$name.dll');
+  }
+  if (Platform.isMacOS) {
+    return DynamicLibrary.open('lib$name.dylib');
+  }
+  throw UnsupportedError('This platform is not supported.');
+}
 
 // =============================================================================
 // MATRIX SERVICE
@@ -49,6 +75,44 @@ class MatrixService {
   Client? get client => _client;
 
   // ===========================================================================
+  // ACTIVE ROOM TRACKING (for push notification filtering)
+  // ===========================================================================
+
+  /// Currently active/open room ID for push notification filtering.
+  /// When a user is viewing a room, we don't want to show notifications for it.
+  String? _activeRoomId;
+
+  /// Get the currently active room ID.
+  String? get activeRoomId => _activeRoomId;
+
+  /// Set the active room ID when entering a chat.
+  void setActiveRoom(String? roomId) {
+    _activeRoomId = roomId;
+  }
+
+  // ===========================================================================
+  // PRIVACY SETTINGS
+  // ===========================================================================
+
+  bool _sendReadReceipts = true;
+  bool get sendReadReceipts => _sendReadReceipts;
+
+  bool _sendTypingIndicators = true;
+  bool get sendTypingIndicators => _sendTypingIndicators;
+
+  Future<void> setSendReadReceipts(bool value) async {
+    _sendReadReceipts = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('send_read_receipts', value);
+  }
+
+  Future<void> setSendTypingIndicators(bool value) async {
+    _sendTypingIndicators = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('send_typing_indicators', value);
+  }
+
+  // ===========================================================================
   // INITIALIZATION
   // ===========================================================================
 
@@ -56,15 +120,33 @@ class MatrixService {
   ///
   /// This only needs to be called once at app startup.
   /// Subsequent calls are no-ops.
-  Future<void> init() async {
+  Future<void> init({bool startSync = true}) async {
     if (_client != null) return;
 
     _log.info('Initializing dependencies...');
 
+    final prefs = await SharedPreferences.getInstance();
+    _sendReadReceipts = prefs.getBool('send_read_receipts') ?? true;
+    _sendTypingIndicators = prefs.getBool('send_typing_indicators') ?? true;
+
     // Initialize FFI for desktop platforms
-    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      // Force usage of 'sqlcipher' dynamic library instead of 'sqlite3'
+      open.overrideFor(OperatingSystem.linux, () {
+        // On Linux, user must have libsqlcipher.so installed or bundled
+        return _loadDynamicLibrary('sqlcipher_flutter_libs_plugin');
+      });
+      open.overrideFor(OperatingSystem.windows, () {
+        return _loadDynamicLibrary('sqlcipher_flutter_libs_plugin');
+      });
+      open.overrideFor(OperatingSystem.macOS, () {
+        return _loadDynamicLibrary('sqlcipher_flutter_libs_plugin');
+      });
+
+      ffi.sqfliteFfiInit();
+      // Set the global database factory to FFI, but cast it so sqflite_sqlcipher can use it
+      // Note: sqflite_sqlcipher usually detects FFI, but explicit setup is safer
+      // databaseFactory = ffi.databaseFactoryFfi;
     }
 
     // Retrieve or generate secure key for DB encryption
@@ -78,24 +160,40 @@ class MatrixService {
     // Initialize vodozemac for E2EE
     await vod.init();
 
-    final database = await MatrixSdkDatabase.init(
-      'MonoChat',
-      database: await databaseFactory.openDatabase(
+    // Note: SQLCipher on FFI (Linux/Desktop) requires manual setup of libraries.
+    // If running on Linux without correct setup, this might fail or not be encrypted.
+    ffi.Database database;
+    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+      database = await ffi.databaseFactoryFfi.openDatabase(
         dbPath,
-        options: OpenDatabaseOptions(version: 1, onCreate: (db, version) {}),
-      ),
+        options: ffi.OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, version) {},
+          onConfigure: (db) async {
+            await db.execute("PRAGMA key = '$dbKey'");
+          },
+        ),
+      );
+    } else {
+      database = await sqlcipher.openDatabase(
+        dbPath,
+        password: dbKey,
+        version: 1,
+        onCreate: (db, version) {},
+      );
+    }
+
+    final matrixSdkDatabase = await MatrixSdkDatabase.init(
+      'MonoChat',
+      database: database,
     );
 
-    // TODO: To fully encrypt the database file, we need a SQLCipher-capable sqflite implementation.
-    // Currently using standard sqflite_common_ffi.
-    // The key generated above can be used once we migrate to a cipher-capable DB factory.
-    _log.info(
-      'Secure DB key generated/retrieved (ready for SQLCipher integration): ${dbKey.substring(0, 4)}...',
-    );
+    _log.info('Secure DB initialized with key: ${dbKey.substring(0, 4)}...');
 
     _client = Client(
       'MonoChat',
-      database: database,
+      database: matrixSdkDatabase,
+      httpClient: AppHttpClient(),
       shareKeysWith: ShareKeysWith.all,
       verificationMethods: {
         KeyVerificationMethod.numbers,
@@ -111,10 +209,14 @@ class MatrixService {
     await _client!.init();
     _log.info('Client initialized. Logged in: ${_client!.isLogged()}');
 
-    // Start background sync if logged in
-    if (_client!.isLogged()) {
+    // Start background sync if logged in and requested
+    if (startSync && _client!.isLogged()) {
       BackgroundSyncService.startBackgroundSync(_client!);
     }
+
+    // Initialize BackgroundPush
+    final bgPush = BackgroundPush.clientOnly(_client!);
+    bgPush.setupPush();
 
     // Setup listeners
     _client!.onLoginStateChanged.stream.listen((state) async {
@@ -129,63 +231,21 @@ class MatrixService {
     });
   }
 
-  // ===========================================================================
-  // DEPRECATED - Use repositories instead
-  // ===========================================================================
-
-  /// @deprecated Use MatrixAuthRepository.login() instead.
-  Future<void> login(
-    String username,
-    String password,
-    String homeserver,
-  ) async {
-    throw UnimplementedError('Use MatrixAuthRepository.login() instead');
-  }
-
-  /// @deprecated Use MatrixChatRepository.sendTextMessage() instead.
-  Future<void> sendMessage(String roomId, String message) async {
-    throw UnimplementedError(
-      'Use MatrixChatRepository.sendTextMessage() instead',
-    );
-  }
-
   Future<String> _getDatabaseKey() async {
     const storage = FlutterSecureStorage();
     const keyName = 'matrix_db_key';
 
-    try {
-      // 1. Try Secure Storage
-      String? key = await storage.read(key: keyName);
+    // 1. Try Secure Storage
+    var key = await storage.read(key: keyName);
 
-      if (key == null) {
-        key = _generateKey();
-        await storage.write(key: keyName, value: key);
-        _log.info('Generated new secure database key');
-      } else {
-        _log.info('Retrieved existing secure database key');
-      }
-      return key;
-    } catch (e) {
-      _log.warning(
-        'Secure storage failed ($e). Falling back to insecure file storage.',
-      );
-      return await _getInsecureDatabaseKey(keyName);
-    }
-  }
-
-  Future<String> _getInsecureDatabaseKey(String keyName) async {
-    final dir = await getApplicationSupportDirectory();
-    final file = File(p.join(dir.path, '$keyName.insecure'));
-
-    if (await file.exists()) {
-      _log.info('Retrieved existing INSECURE database key');
-      return await file.readAsString();
+    if (key == null) {
+      key = _generateKey();
+      await storage.write(key: keyName, value: key);
+      _log.info('Generated new secure database key');
     } else {
-      final key = _generateKey();
-      await file.writeAsString(key);
-      _log.info('Generated new INSECURE database key');
-      return key;
+      _log.info('Retrieved existing secure database key');
     }
+    return key;
   }
 
   String _generateKey() {

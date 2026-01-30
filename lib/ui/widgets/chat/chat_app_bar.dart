@@ -1,13 +1,13 @@
 import 'dart:ui';
+
 import 'package:flutter/cupertino.dart';
 import 'package:gap/gap.dart';
 import 'package:matrix/matrix.dart';
+import 'package:monochat/controllers/theme_controller.dart';
+import 'package:monochat/ui/screens/room_details_screen.dart';
 import 'package:monochat/ui/screens/user_verification_screen.dart';
 import 'package:monochat/ui/widgets/matrix_avatar.dart';
 import 'package:monochat/ui/widgets/presence_builder.dart';
-import 'package:monochat/ui/screens/room_details_screen.dart';
-
-import 'package:monochat/controllers/theme_controller.dart';
 import 'package:provider/provider.dart';
 
 class ChatAppBar extends StatelessWidget {
@@ -162,7 +162,7 @@ class ChatAppBar extends StatelessWidget {
                                     return const SizedBox.shrink();
                                   }
 
-                                  String status = '';
+                                  var status = '';
                                   Color color = CupertinoColors.systemGrey;
 
                                   if (presence.presence ==
@@ -190,7 +190,7 @@ class ChatAppBar extends StatelessWidget {
                             else if (!room.isDirectChat)
                               Text(
                                 '${room.summary.mJoinedMemberCount ?? 0} members',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 12,
                                   color: CupertinoColors.systemGrey,
                                 ),
@@ -200,19 +200,33 @@ class ChatAppBar extends StatelessWidget {
                       ),
 
                       // Encryption Lock
-                      CupertinoButton(
-                        padding: const EdgeInsets.all(8),
-                        onPressed: () => _showEvaluationSheet(context),
-                        child: Icon(
-                          isEncrypted
-                              ? CupertinoIcons.lock_fill
-                              : CupertinoIcons.lock_open_fill,
-                          size: 18,
-                          color: isEncrypted
-                              ? CupertinoColors.activeGreen
-                              : CupertinoColors.systemRed,
+                      if (room.isDirectChat)
+                        CupertinoButton(
+                          padding: const EdgeInsets.all(8),
+                          onPressed: () => _showEvaluationSheet(context),
+                          child: Icon(
+                            isEncrypted
+                                ? CupertinoIcons.lock_fill
+                                : CupertinoIcons.lock_open_fill,
+                            size: 18,
+                            color: isEncrypted
+                                ? CupertinoColors.activeGreen
+                                : CupertinoColors.systemRed,
+                          ),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(
+                            isEncrypted
+                                ? CupertinoIcons.lock_fill
+                                : CupertinoIcons.lock_open_fill,
+                            size: 18,
+                            color: isEncrypted
+                                ? CupertinoColors.activeGreen
+                                : CupertinoColors.systemRed,
+                          ),
                         ),
-                      ),
 
                       Icon(
                         CupertinoIcons.chevron_right,

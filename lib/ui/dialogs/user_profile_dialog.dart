@@ -1,16 +1,14 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-
-import 'package:matrix/matrix.dart';
 import 'package:gap/gap.dart';
-import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-
+import 'package:matrix/matrix.dart';
 import 'package:monochat/controllers/theme_controller.dart';
-import 'package:monochat/ui/widgets/presence_builder.dart';
-import 'package:monochat/ui/widgets/mxc_image.dart';
-import 'package:monochat/ui/widgets/avatar_viewer.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
+import 'package:monochat/ui/widgets/avatar_viewer.dart';
+import 'package:monochat/ui/widgets/mxc_image.dart';
+import 'package:monochat/ui/widgets/presence_builder.dart';
+import 'package:provider/provider.dart';
 
 /// iOS-styled user profile dialog.
 ///
@@ -261,7 +259,7 @@ class UserProfileDialog extends StatelessWidget {
           ),
         );
         overlay.insert(entry);
-        Future.delayed(const Duration(seconds: 1), () => entry.remove());
+        Future.delayed(const Duration(seconds: 1), entry.remove);
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

@@ -30,6 +30,20 @@ abstract class ChatRepository {
     Event? inReplyTo,
   });
 
+  /// Edits an existing text message.
+  Future<Result<String>> editTextMessage({
+    required Room room,
+    required String originalEventId,
+    required String newText,
+  });
+
+  /// Redacts (deletes) a message.
+  Future<Result<void>> redactMessage({
+    required Room room,
+    required String eventId,
+    String? reason,
+  });
+
   /// Sends a file message to the specified room.
   ///
   /// The file should already be uploaded via [uploadContent].

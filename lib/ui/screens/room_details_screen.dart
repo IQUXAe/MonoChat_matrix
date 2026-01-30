@@ -1,20 +1,27 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Divider;
 import 'package:flutter/services.dart';
-
 import 'package:gap/gap.dart';
-import 'package:matrix/matrix.dart';
-import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-
+import 'package:matrix/matrix.dart';
 import 'package:monochat/controllers/theme_controller.dart';
-import 'package:monochat/ui/widgets/mxc_image.dart';
-import 'package:monochat/ui/widgets/matrix_avatar.dart';
-import 'package:monochat/ui/widgets/presence_builder.dart';
+import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:monochat/ui/dialogs/user_profile_dialog.dart';
 import 'package:monochat/ui/screens/user_verification_screen.dart';
 import 'package:monochat/ui/widgets/avatar_viewer.dart';
-import 'package:monochat/l10n/generated/app_localizations.dart';
+import 'package:monochat/ui/widgets/matrix_avatar.dart';
+import 'package:monochat/ui/widgets/mxc_image.dart';
+import 'package:monochat/ui/widgets/presence_builder.dart';
+import 'package:provider/provider.dart';
+import '../theme/app_palette.dart';
+import 'package:monochat/ui/screens/settings/access_and_visibility_screen.dart';
+import 'package:monochat/ui/screens/settings/chat_permissions_screen.dart';
+import 'room_members_screen.dart';
+
+// ... (existing imports will be preserved by using correct target range, but I need to be careful with replace_file_content and imports)
+// Actually, I should use multi_replace to handle import and widget addition separately cleanly.
+// Let's use replace_file_content for imports at top, then another for the body.
+// WAIT, I can just use one multi_replace.
 
 /// Full-page room/chat details screen.
 class RoomDetailsScreen extends StatefulWidget {
@@ -76,7 +83,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
         attempts++;
       }
 
-      int photos = 0, videos = 0, audios = 0, links = 0, files = 0;
+      var photos = 0, videos = 0, audios = 0, links = 0, files = 0;
 
       for (final event in timeline.events) {
         if (event.type != EventTypes.Message) continue;
@@ -153,6 +160,11 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
             _buildInfoSection(palette, l10n),
             const Gap(16),
 
+            if (!room.encrypted) ...[
+              _buildUnencryptedWarning(palette),
+              const Gap(16),
+            ],
+
             if (room.topic.isNotEmpty || !isDirectChat) ...[
               _buildSection(
                 title: 'Description',
@@ -208,7 +220,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     );
   }
 
-  Widget _buildUserIdSection(String userId, palette) {
+  Widget _buildUserIdSection(String userId, AppPalette palette) {
     return _buildSection(
       title: 'Matrix ID',
       palette: palette,
@@ -243,7 +255,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     );
   }
 
-  Widget _buildAvatarSection(palette) {
+  Widget _buildAvatarSection(AppPalette palette) {
     final room = widget.room;
 
     return Column(
@@ -321,7 +333,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     );
   }
 
-  Widget _buildInfoSection(palette, AppLocalizations l10n) {
+  Widget _buildInfoSection(AppPalette palette, AppLocalizations l10n) {
     final room = widget.room;
 
     return _buildSection(
@@ -352,6 +364,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
             title: 'Members',
             value: '${room.summary.mJoinedMemberCount ?? 0}',
             palette: palette,
+            onTap: _openMembersList,
           ),
           if (!room.isDirectChat) ...[
             Divider(height: 1, color: palette.separator.withValues(alpha: 0.3)),
@@ -362,6 +375,8 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
               title: 'Encryption',
               value: room.encrypted ? 'Enabled' : 'Disabled',
               palette: palette,
+              // Make lock non-clickable as requested
+              onTap: null,
             ),
           ],
         ],
@@ -369,7 +384,37 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     );
   }
 
-  Widget _buildMediaSection(palette) {
+  Widget _buildUnencryptedWarning(AppPalette palette) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: CupertinoColors.systemRed.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: CupertinoColors.systemRed.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            CupertinoIcons.exclamationmark_triangle,
+            color: CupertinoColors.systemRed,
+            size: 20,
+          ),
+          const Gap(12),
+          const Expanded(
+            child: Text(
+              'This chat is not encrypted. Messages are not secure.',
+              style: TextStyle(color: CupertinoColors.systemRed, fontSize: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMediaSection(AppPalette palette) {
     return _buildSection(
       title: 'Media, Links, Files',
       palette: palette,
@@ -418,7 +463,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
                   title: 'Links',
                   count: _linkCount,
                   palette: palette,
-                  onTap: () => _openLinksView(),
+                  onTap: _openLinksView,
                 ),
                 Divider(
                   height: 1,
@@ -440,7 +485,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     required IconData icon,
     required String title,
     required int count,
-    required palette,
+    required AppPalette palette,
     required VoidCallback onTap,
   }) {
     return CupertinoButton(
@@ -492,9 +537,19 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     );
   }
 
+  void _openMembersList() {
+    Navigator.push(
+      context,
+      CupertinoPageRoute(
+        builder: (_) =>
+            RoomMembersScreen(room: widget.room, client: widget.client),
+      ),
+    );
+  }
+
   Widget _buildPresenceSection(
     CachedPresence presence,
-    palette,
+    AppPalette palette,
     AppLocalizations l10n,
   ) {
     String statusText;
@@ -567,7 +622,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     );
   }
 
-  Widget _buildMembersSection(palette, AppLocalizations l10n) {
+  Widget _buildMembersSection(AppPalette palette, AppLocalizations l10n) {
     return _buildSection(
       title: 'Members',
       palette: palette,
@@ -593,7 +648,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
                   ),
                   CupertinoButton(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    onPressed: () {},
+                    onPressed: _openMembersList,
                     child: Text(
                       'View all ${_members!.length} members',
                       style: TextStyle(fontSize: 15, color: palette.primary),
@@ -671,8 +726,19 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     );
   }
 
-  Widget _buildActionsSection(palette, AppLocalizations l10n) {
+  Widget _buildActionsSection(AppPalette palette, AppLocalizations l10n) {
     final room = widget.room;
+
+    // Get current notification state
+    final pushState = room.pushRuleState;
+    String notificationStatus;
+    if (pushState == PushRuleState.dontNotify) {
+      notificationStatus = l10n.notificationsMuted;
+    } else if (pushState == PushRuleState.mentionsOnly) {
+      notificationStatus = l10n.mentionsOnly;
+    } else {
+      notificationStatus = l10n.notificationsOn;
+    }
 
     return _buildSection(
       title: 'Actions',
@@ -701,15 +767,48 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
             icon: CupertinoIcons.search,
             title: 'Search in Chat',
             palette: palette,
-            onTap: () => _openSearch(),
+            onTap: _openSearch,
           ),
           Divider(height: 1, color: palette.separator.withValues(alpha: 0.3)),
+
+          if (room.canChangeStateEvent(EventTypes.RoomJoinRules)) ...[
+            _buildActionTile(
+              icon: CupertinoIcons.eye,
+              title: 'Access & Visibility',
+              palette: palette,
+              onTap: () => Navigator.push(
+                context,
+                CupertinoPageRoute(
+                  builder: (_) => AccessAndVisibilityScreen(room: room),
+                ),
+              ),
+            ),
+            Divider(height: 1, color: palette.separator.withValues(alpha: 0.3)),
+          ],
+
+          if (room.canChangePowerLevel) ...[
+            _buildActionTile(
+              icon: CupertinoIcons.shield_fill,
+              title: 'Chat Permissions',
+              palette: palette,
+              onTap: () => Navigator.push(
+                context,
+                CupertinoPageRoute(
+                  builder: (_) => ChatPermissionsScreen(room: room),
+                ),
+              ),
+            ),
+            Divider(height: 1, color: palette.separator.withValues(alpha: 0.3)),
+          ],
+
           _buildActionTile(
-            icon: CupertinoIcons.bell,
-            title: 'Notifications',
-            subtitle: room.pushRuleState == PushRuleState.notify ? 'On' : 'Off',
+            icon: pushState == PushRuleState.dontNotify
+                ? CupertinoIcons.bell_slash
+                : CupertinoIcons.bell,
+            title: l10n.notifications,
+            subtitle: notificationStatus,
             palette: palette,
-            onTap: () {},
+            onTap: () => _showNotificationSettings(l10n, palette),
           ),
           Divider(height: 1, color: palette.separator.withValues(alpha: 0.3)),
           _buildActionTile(
@@ -724,6 +823,94 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _showNotificationSettings(AppLocalizations l10n, palette) async {
+    final room = widget.room;
+    final currentState = room.pushRuleState;
+
+    final result = await showCupertinoModalPopup<PushRuleState>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: Text(l10n.notificationsSettings),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.pop(context, PushRuleState.notify),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (currentState == PushRuleState.notify)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Icon(CupertinoIcons.checkmark, size: 18),
+                  ),
+                Text(l10n.allMessages),
+              ],
+            ),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.pop(context, PushRuleState.mentionsOnly),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (currentState == PushRuleState.mentionsOnly)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Icon(CupertinoIcons.checkmark, size: 18),
+                  ),
+                Text(l10n.mentionsOnly),
+              ],
+            ),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.pop(context, PushRuleState.dontNotify),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (currentState == PushRuleState.dontNotify)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Icon(CupertinoIcons.checkmark, size: 18),
+                  ),
+                Text(l10n.muteNotifications),
+              ],
+            ),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.cancel),
+        ),
+      ),
+    );
+
+    if (result != null && result != currentState) {
+      try {
+        await room.setPushRuleState(result);
+        if (mounted) {
+          setState(() {}); // Refresh UI
+          // Show success feedback
+          HapticFeedback.lightImpact();
+        }
+      } catch (e) {
+        if (mounted) {
+          showCupertinoDialog<void>(
+            context: context,
+            builder: (context) => CupertinoAlertDialog(
+              title: Text(l10n.error),
+              content: Text(l10n.roomNotificationError),
+              actions: [
+                CupertinoDialogAction(
+                  child: Text(l10n.ok),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    }
   }
 
   void _openSearch() {
@@ -772,7 +959,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     required IconData icon,
     required String title,
     required String value,
-    required palette,
+    required AppPalette palette,
     VoidCallback? onTap,
   }) {
     return CupertinoButton(
@@ -784,21 +971,31 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
           children: [
             Icon(icon, size: 20, color: palette.secondaryText),
             const Gap(12),
-            Text(title, style: TextStyle(fontSize: 15, color: palette.text)),
-            const Spacer(),
-            Flexible(
+            SizedBox(
+              width: 110,
+              child: Text(
+                title,
+                style: TextStyle(fontSize: 15, color: palette.text),
+              ),
+            ),
+            Expanded(
               child: Text(
                 value,
                 style: TextStyle(fontSize: 15, color: palette.secondaryText),
                 overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.left,
               ),
             ),
             if (onTap != null) ...[
               const Gap(8),
               Icon(
-                CupertinoIcons.doc_on_clipboard,
-                size: 16,
-                color: palette.primary,
+                title == 'Members'
+                    ? CupertinoIcons.chevron_right
+                    : CupertinoIcons.doc_on_clipboard,
+                size: title == 'Members' ? 16 : 16,
+                color: title == 'Members'
+                    ? palette.secondaryText
+                    : palette.primary,
               ),
             ],
           ],
@@ -868,14 +1065,6 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
             onPressed: () => Navigator.pop(context, 'leave'),
             child: Text(isDirectChat ? 'Delete' : 'Leave'),
           ),
-          if (!isDirectChat) // Option to forgetting/deleting if applicable
-            CupertinoActionSheetAction(
-              isDestructiveAction: true,
-              onPressed: () => Navigator.pop(context, 'forget'),
-              child: const Text(
-                'Delete Group',
-              ), // "Forget" in Matrix terms effectively deletes it from user view
-            ),
         ],
         cancelButton: CupertinoActionSheetAction(
           isDefaultAction: true,
@@ -894,25 +1083,23 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
           await widget.room.forget();
         }
 
-        if (context.mounted) {
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        }
+        if (!mounted) return;
+        Navigator.of(context).popUntil((route) => route.isFirst);
       } catch (e) {
-        if (context.mounted) {
-          showCupertinoDialog<void>(
-            context: context,
-            builder: (context) => CupertinoAlertDialog(
-              title: const Text('Error'),
-              content: Text(e.toString()),
-              actions: [
-                CupertinoDialogAction(
-                  child: const Text('OK'),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-          );
-        }
+        if (!mounted) return;
+        showCupertinoDialog<void>(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('Error'),
+            content: Text(e.toString()),
+            actions: [
+              CupertinoDialogAction(
+                child: const Text('OK'),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        );
       }
     }
   }
@@ -1017,7 +1204,7 @@ class _ChatSearchScreenState extends State<ChatSearchScreen> {
               )
             : ListView.separated(
                 itemCount: _results.length,
-                separatorBuilder: (_, __) => Divider(
+                separatorBuilder: (_, _) => Divider(
                   height: 1,
                   color: palette.separator.withValues(alpha: 0.3),
                 ),
@@ -1208,7 +1395,7 @@ class _MediaGalleryScreenState extends State<MediaGalleryScreen> {
 
     return ListView.separated(
       itemCount: _mediaEvents.length,
-      separatorBuilder: (_, __) =>
+      separatorBuilder: (_, _) =>
           Divider(height: 1, color: palette.separator.withValues(alpha: 0.3)),
       itemBuilder: (context, index) {
         final event = _mediaEvents[index];
@@ -1323,7 +1510,7 @@ class _LinksScreenState extends State<LinksScreen> {
               )
             : ListView.separated(
                 itemCount: _links.length,
-                separatorBuilder: (_, __) => Divider(
+                separatorBuilder: (_, _) => Divider(
                   height: 1,
                   color: palette.separator.withValues(alpha: 0.3),
                 ),

@@ -1,21 +1,21 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
+
+import 'package:intl/intl.dart';
+import 'package:matrix/matrix.dart';
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/room_list_controller.dart';
+import 'package:monochat/controllers/space_controller.dart';
 import 'package:monochat/controllers/theme_controller.dart';
+import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:monochat/ui/screens/chat_screen.dart';
 import 'package:monochat/ui/screens/new_chat_screen.dart';
 import 'package:monochat/ui/screens/profile_screen.dart';
+import 'package:monochat/ui/screens/space_view_screen.dart';
+import 'package:monochat/ui/widgets/key_verification_dialog.dart';
 import 'package:monochat/ui/widgets/matrix_avatar.dart';
 import 'package:provider/provider.dart';
-import 'package:matrix/matrix.dart';
-import 'package:intl/intl.dart';
-import 'dart:async';
-
-import 'package:monochat/l10n/generated/app_localizations.dart';
-
-import 'package:monochat/ui/widgets/key_verification_dialog.dart';
 
 class RoomListScreen extends StatefulWidget {
   const RoomListScreen({super.key});
@@ -65,11 +65,11 @@ class _RoomListScreenState extends State<RoomListScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CupertinoActivityIndicator(),
-              SizedBox(height: 16),
+              const CupertinoActivityIndicator(),
+              const SizedBox(height: 16),
               Text(
                 AppLocalizations.of(context)!.syncing,
-                style: TextStyle(color: CupertinoColors.secondaryLabel),
+                style: const TextStyle(color: CupertinoColors.secondaryLabel),
               ),
             ],
           ),
@@ -77,79 +77,104 @@ class _RoomListScreenState extends State<RoomListScreen> {
       );
     }
 
+    // If a space is active, show SpaceViewScreen - REMOVED
+    // We now use standard navigation push for spaces.
+
+    // Filter rooms - include spaces in the list now
     final rooms = controller.sortedRooms;
 
     return CupertinoPageScaffold(
       child: Stack(
         children: [
           Positioned.fill(
-            child: CustomScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              cacheExtent: 350,
-              slivers: [
-                CupertinoSliverNavigationBar(
-                  largeTitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(AppLocalizations.of(context)!.chatsTitle),
-                      if (controller.isOffline)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4.0),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const CupertinoActivityIndicator(radius: 8),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Waiting for network...',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: CupertinoColors.secondaryLabel,
-                                  fontWeight: FontWeight.normal,
+            child: Column(
+              children: [
+                // Room list
+                Expanded(
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    cacheExtent: 350,
+                    slivers: [
+                      CupertinoSliverNavigationBar(
+                        largeTitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(AppLocalizations.of(context)!.chatsTitle),
+                            if (controller.isOffline)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 4.0),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CupertinoActivityIndicator(radius: 8),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Waiting for network...',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: CupertinoColors.secondaryLabel,
+                                        fontWeight: FontWeight.normal,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
+                          ],
+                        ),
+                        trailing: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          child: const Icon(
+                            CupertinoIcons.person_crop_circle,
+                            size: 26,
+                          ),
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              CupertinoPageRoute(
+                                builder: (_) => const ProfileScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: CupertinoColors.separator.withValues(
+                              alpha: 0.3,
+                            ),
+                            width: 0.5,
                           ),
                         ),
+                      ),
+                      SliverPadding(
+                        padding: EdgeInsets.only(
+                          bottom: MediaQuery.of(context).padding.bottom + 100,
+                        ),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (context, index) {
+                              if (index.isOdd) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(left: 82),
+                                  child: Container(
+                                    height: 0.5,
+                                    color: palette.separator.withValues(
+                                      alpha: 0.5,
+                                    ),
+                                  ),
+                                );
+                              }
+                              final room = rooms[index ~/ 2];
+                              return _RoomTile(
+                                key: ValueKey(room.id),
+                                room: room,
+                              );
+                            },
+                            childCount: rooms.isNotEmpty
+                                ? rooms.length * 2 - 1
+                                : 0,
+                          ),
+                        ),
+                      ),
                     ],
-                  ),
-                  trailing: CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    child: const Icon(
-                      CupertinoIcons.person_crop_circle,
-                      size: 26,
-                    ),
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        CupertinoPageRoute(
-                          builder: (_) => const ProfileScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  border: Border(
-                    bottom: BorderSide(
-                      color: CupertinoColors.separator.withValues(alpha: 0.3),
-                      width: 0.5,
-                    ),
-                  ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.only(bottom: 100),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      if (index.isOdd) {
-                        return Padding(
-                          padding: const EdgeInsets.only(left: 82),
-                          child: Container(
-                            height: 0.5,
-                            color: palette.separator.withValues(alpha: 0.5),
-                          ),
-                        );
-                      }
-                      final room = rooms[index ~/ 2];
-                      return _RoomTile(key: ValueKey(room.id), room: room);
-                    }, childCount: rooms.isNotEmpty ? rooms.length * 2 - 1 : 0),
                   ),
                 ),
               ],
@@ -160,10 +185,14 @@ class _RoomListScreenState extends State<RoomListScreen> {
             right: 24,
             child: GestureDetector(
               onTap: () {
+                final spaceController = context.read<SpaceController>();
                 Navigator.of(context).push(
                   CupertinoPageRoute(
                     fullscreenDialog: true,
-                    builder: (_) => const NewChatScreen(),
+                    builder: (_) => ChangeNotifierProvider.value(
+                      value: spaceController,
+                      child: const NewChatScreen(),
+                    ),
                   ),
                 );
               },
@@ -175,21 +204,17 @@ class _RoomListScreenState extends State<RoomListScreen> {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: CupertinoColors.black.withOpacity(0.2),
+                      color: CupertinoColors.black.withValues(alpha: 0.2),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
                   ],
                 ),
                 alignment: Alignment.center,
-                child: SvgPicture.asset(
-                  'assets/icons/plus.svg',
-                  colorFilter: const ColorFilter.mode(
-                    CupertinoColors.white,
-                    BlendMode.srcIn,
-                  ),
-                  width: 24,
-                  height: 24,
+                child: const Icon(
+                  CupertinoIcons.add,
+                  color: CupertinoColors.white,
+                  size: 28,
                 ),
               ),
             ),
@@ -244,7 +269,7 @@ class _RoomTileState extends State<_RoomTile> {
       // This maintains "Best Practice" performance while ensuring the "instant"
       // update behavior the user desires for the specific chat events.
       final roomUpdate = syncUpdate.rooms?.join?[roomId];
-      final bool hasRelevantUpdate =
+      final hasRelevantUpdate =
           (roomUpdate != null &&
               (roomUpdate.timeline != null ||
                   roomUpdate.state != null ||
@@ -266,6 +291,7 @@ class _RoomTileState extends State<_RoomTile> {
   }
 
   String _getMessagePreview(Event? event, Room room) {
+    if (room.isSpace) return 'Space';
     if (event == null) return 'No messages';
 
     final isMe = event.senderId == room.client.userID;
@@ -325,11 +351,11 @@ class _RoomTileState extends State<_RoomTile> {
     final palette = context.watch<ThemeController>().palette;
     final lastEvent = widget.room.lastEvent;
 
-    // FluffyChat Logic + Fix for self-messages
+    // Logic + Fix for self-messages
     // 1. isUnread includes notificationCount > 0 OR markedUnread
     // 2. Override if the last message is sent by me
-    bool isUnread = widget.room.isUnread;
-    int count = widget.room.notificationCount;
+    var isUnread = widget.room.isUnread;
+    var count = widget.room.notificationCount;
 
     if (lastEvent?.senderId == widget.room.client.userID) {
       isUnread = false;
@@ -345,6 +371,23 @@ class _RoomTileState extends State<_RoomTile> {
       onTapUp: (_) => setState(() => _isPressed = false),
       onTapCancel: () => setState(() => _isPressed = false),
       onTap: () {
+        if (widget.room.isSpace) {
+          // Navigate to Space View
+          final spaceController = context.read<SpaceController>();
+          Navigator.of(context).push(
+            CupertinoPageRoute(
+              builder: (context) => ChangeNotifierProvider.value(
+                value: spaceController,
+                child: SpaceViewScreen(
+                  spaceId: widget.room.id,
+                  onBack: spaceController.clearActiveSpace,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
         // Fix for counter bugs: explicitly mark as read on the server side
         // when tapping the chat. This ensures the count resets correctly.
         final lastEventId = widget.room.lastEvent?.eventId;
@@ -378,6 +421,7 @@ class _RoomTileState extends State<_RoomTile> {
               name: widget.room.getLocalizedDisplayname(),
               client: widget.room.client,
               size: 58,
+              borderRadius: widget.room.isSpace ? 12 : null,
               userId:
                   widget.room.directChatMatrixID, // Show online status for DMs
             ),
@@ -390,16 +434,45 @@ class _RoomTileState extends State<_RoomTile> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Flexible(
-                        child: Text(
-                          widget.room.getLocalizedDisplayname(),
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 17,
-                            letterSpacing: -0.4,
-                            color: palette.text,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                widget.room.getLocalizedDisplayname(),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 17,
+                                  letterSpacing: -0.4,
+                                  color: palette.text,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (widget.room.isSpace) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: palette.secondaryText.withValues(
+                                    alpha: 0.2,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'Space',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: palette.secondaryText,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                       Text(

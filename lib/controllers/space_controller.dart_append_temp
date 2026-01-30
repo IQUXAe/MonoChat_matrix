@@ -1,0 +1,19 @@
+
+}
+
+// =============================================================================
+// ISOLATE FUNCTIONS
+// =============================================================================
+
+/// Top-level function for Isolate: Parsing JSON bytes
+List<SpaceRoomsChunk$2> _parseSpaceChildren(Uint8List bytes) {
+  final jsonStr = utf8.decode(bytes);
+  final List<dynamic> jsonList = jsonDecode(jsonStr);
+  return jsonList.map((e) => SpaceRoomsChunk$2.fromJson(e)).toList();
+}
+
+/// Top-level function for Isolate: Encoding JSON to bytes
+Uint8List _encodeSpaceChildren(List<Map<String, dynamic>> jsonList) {
+   final jsonStr = jsonEncode(jsonList);
+   return utf8.encode(jsonStr) as Uint8List;
+}

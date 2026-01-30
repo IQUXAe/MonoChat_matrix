@@ -10,6 +10,7 @@ import 'package:matrix/matrix.dart';
 import 'package:mime/mime.dart';
 
 import '../domain/repositories/chat_repository.dart';
+import '../services/matrix_service.dart';
 import '../utils/image_compressor.dart';
 
 // =============================================================================
@@ -36,7 +37,7 @@ Future<CompressedImage?> _compressImageIsolate(Uint8List bytes) async {
 /// - Message composition and sending (text, files, replies)
 /// - File attachments with compression
 /// - Typing indicators
-/// - Read receipts (using Timeline like FluffyChat)
+/// - Read receipts (using Timeline)
 /// - Drag-and-drop file handling
 ///
 /// Uses [ChatRepository] for Matrix operations and maintains a [Timeline]
@@ -65,7 +66,7 @@ class ChatController extends ChangeNotifier {
   /// Timeline instance for message history and read markers.
   ///
   /// Using Timeline.setReadMarker() instead of Room.setReadMarker()
-  /// ensures immediate local state updates (like FluffyChat does).
+  /// ensures immediate local state updates.
   Timeline? timeline;
 
   /// Future tracking timeline loading.
@@ -238,12 +239,31 @@ class ChatController extends ChangeNotifier {
   }
 
   // ===========================================================================
+  // EDITING STATE
+  // ===========================================================================
+
+  Event? _editingEvent;
+  Event? get editingEvent => _editingEvent;
+
+  void startEditing(Event event) {
+    _editingEvent = event;
+    _replyingTo = null; // Cannot reply while editing
+    notifyListeners();
+  }
+
+  void cancelEditing() {
+    _editingEvent = null;
+    notifyListeners();
+  }
+
+  // ===========================================================================
   // REPLY
   // ===========================================================================
 
   /// Sets the event to reply to.
   void setReplyTo(Event? event) {
     _replyingTo = event;
+    _editingEvent = null; // Cannot edit while replying
     notifyListeners();
   }
 
@@ -255,8 +275,25 @@ class ChatController extends ChangeNotifier {
   ///
   /// Clears UI state immediately for responsive feedback.
   Future<void> sendMessage(String text) async {
+    final trimmedText = text.trim();
     final hasAttachments = _attachmentDrafts.isNotEmpty;
-    if (text.trim().isEmpty && !hasAttachments) return;
+    if (trimmedText.isEmpty && !hasAttachments) return;
+
+    // Handle Edit
+    if (_editingEvent != null) {
+      final originalId = _editingEvent!.eventId;
+
+      // Optimistic cleanup
+      _editingEvent = null;
+      notifyListeners();
+
+      await _chatRepository.editTextMessage(
+        room: room,
+        originalEventId: originalId,
+        newText: trimmedText,
+      );
+      return;
+    }
 
     final replyTo = _replyingTo;
     final attachmentsToSend = List<XFile>.from(_attachmentDrafts);
@@ -272,13 +309,17 @@ class ChatController extends ChangeNotifier {
     }
 
     // Send text (only first message is a reply if there were attachments)
-    if (text.trim().isNotEmpty) {
+    if (trimmedText.isNotEmpty) {
       await _chatRepository.sendTextMessage(
         room: room,
-        text: text,
+        text: trimmedText,
         inReplyTo: attachmentsToSend.isEmpty ? replyTo : null,
       );
     }
+  }
+
+  Future<void> redactEvent(String eventId) async {
+    await _chatRepository.redactMessage(room: room, eventId: eventId);
   }
 
   /// Sends files with optional compression.
@@ -398,8 +439,14 @@ class ChatController extends ChangeNotifier {
   // TYPING INDICATOR
   // ===========================================================================
 
+  // ===========================================================================
+  // TYPING INDICATOR
+  // ===========================================================================
+
   /// Updates typing indicator with debouncing.
   void updateTyping(bool isTyping) {
+    if (!MatrixService().sendTypingIndicators) return;
+
     final now = DateTime.now();
     final shouldThrottle =
         _lastTypingTime != null &&
@@ -424,11 +471,13 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  /// Sets read marker using Timeline (like FluffyChat).
+  /// Sets read marker using Timeline.
   ///
   /// Timeline.setReadMarker updates local state immediately,
   /// unlike Room.setReadMarker which waits for sync.
   void setReadMarker({String? eventId}) {
+    if (!MatrixService().sendReadReceipts) return;
+
     if (_setReadMarkerFuture != null) return;
     if (_scrolledUp) return;
     if (eventId == null &&

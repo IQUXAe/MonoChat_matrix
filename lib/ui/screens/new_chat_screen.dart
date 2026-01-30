@@ -1,14 +1,18 @@
 import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:gap/gap.dart';
 import 'package:matrix/matrix.dart';
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/room_list_controller.dart';
+import 'package:monochat/controllers/space_controller.dart';
 import 'package:monochat/controllers/theme_controller.dart';
+import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:monochat/ui/screens/chat_screen.dart';
+import 'package:monochat/ui/screens/create_group_screen.dart';
+import 'package:monochat/ui/screens/create_space_screen.dart';
 import 'package:monochat/ui/widgets/matrix_avatar.dart';
 import 'package:provider/provider.dart';
-import 'package:monochat/ui/screens/create_group_screen.dart';
 
 class NewChatScreen extends StatefulWidget {
   const NewChatScreen({super.key});
@@ -19,15 +23,17 @@ class NewChatScreen extends StatefulWidget {
 
 class _NewChatScreenState extends State<NewChatScreen> {
   final _searchController = TextEditingController();
+  final _tagController = TextEditingController();
   Timer? _debounce;
   bool _isLoading = false;
   String? _error;
   List<Profile> _searchResults = [];
-  List<PublicRoomsChunk> _publicRooms = [];
+  List<PublishedRoomsChunk> _publicRooms = [];
 
   @override
   void dispose() {
     _searchController.dispose();
+    _tagController.dispose();
     _debounce?.cancel();
     super.dispose();
   }
@@ -60,7 +66,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
 
       // Smart Search Logic
       Future<List<Profile>>? usersFuture;
-      Future<List<PublicRoomsChunk>>? roomsFuture;
+      Future<List<PublishedRoomsChunk>>? roomsFuture;
 
       if (query.startsWith('@')) {
         // User explicitly searching for a user
@@ -87,11 +93,11 @@ class _NewChatScreenState extends State<NewChatScreen> {
 
       final results = await Future.wait([
         usersFuture ?? Future.value(<Profile>[]),
-        roomsFuture ?? Future.value(<PublicRoomsChunk>[]),
+        roomsFuture ?? Future.value(<PublishedRoomsChunk>[]),
       ]);
 
       final users = results[0] as List<Profile>;
-      final rooms = results[1] as List<PublicRoomsChunk>;
+      final rooms = results[1] as List<PublishedRoomsChunk>;
 
       if (mounted) {
         setState(() {
@@ -111,29 +117,45 @@ class _NewChatScreenState extends State<NewChatScreen> {
     }
   }
 
-  Future<void> _joinRoom(String roomId) async {
+  Future<void> _joinRoom(String roomIdOrAlias) async {
     setState(() => _isLoading = true);
     try {
       final authController = context.read<AuthController>();
+      final client = authController.client;
+      if (client == null) return;
+
+      var query = roomIdOrAlias.trim();
+      // Auto-prepend # if it looks like an alias but missing #
+      if (!query.startsWith('#') &&
+          !query.startsWith('!') &&
+          query.contains(':')) {
+        query = '#$query';
+      }
+
       // Check if already joined
-      var room = authController.client?.getRoomById(roomId);
+      var room = client.getRoomById(query);
 
       if (room == null) {
         // Try to join
-        final newRoomId = await authController.client?.joinRoom(roomId);
-        if (newRoomId != null) {
-          room = authController.client?.getRoomById(newRoomId);
+        final newRoomId = await client.joinRoom(query);
+        // Wait for the room to appear in the client
+        // Simple retry mechanism to wait for the room to be available
+        for (var i = 0; i < 10; i++) {
+          room = client.getRoomById(newRoomId);
+          if (room != null) break;
+          await Future.delayed(const Duration(milliseconds: 200));
         }
-      }
+            }
 
-      if (mounted && room != null) {
-        Navigator.of(context).pushReplacement(
-          CupertinoPageRoute(builder: (_) => ChatScreen(room: room!)),
-        );
-      } else {
-        if (mounted) {
+      if (mounted) {
+        if (room != null) {
+          Navigator.of(context).pushReplacement(
+            CupertinoPageRoute(builder: (_) => ChatScreen(room: room!)),
+          );
+        } else {
           setState(() {
-            _error = "Could not join room";
+            _error =
+                'Joined room, but could not load content immediately. Check your chat list.';
             _isLoading = false;
           });
         }
@@ -170,7 +192,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
       } else {
         if (mounted) {
           setState(() {
-            _error = "Could not create chat";
+            _error = 'Could not create chat';
             _isLoading = false;
           });
         }
@@ -185,19 +207,57 @@ class _NewChatScreenState extends State<NewChatScreen> {
     }
   }
 
+  void _showJoinByTagDialog() {
+    _tagController.clear();
+    showCupertinoDialog(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: Text(AppLocalizations.of(context)!.joinByTag),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 16.0),
+          child: CupertinoTextField(
+            controller: _tagController,
+            placeholder: AppLocalizations.of(context)!.enterTag,
+            autofocus: true,
+            style: TextStyle(color: CupertinoTheme.of(context).primaryColor),
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(AppLocalizations.of(context)!.cancel),
+          ),
+          CupertinoDialogAction(
+            onPressed: () {
+              final tag = _tagController.text.trim();
+              if (tag.isNotEmpty) {
+                Navigator.pop(ctx);
+                _joinRoom(tag);
+              }
+            },
+            child: Text(AppLocalizations.of(context)!.join),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.watch<ThemeController>().palette;
     final client = context.read<AuthController>().client;
+    final l10n = AppLocalizations.of(context)!;
+    final spaceController = context.read<SpaceController>();
 
     return CupertinoPageScaffold(
       backgroundColor: palette.scaffoldBackground,
       navigationBar: CupertinoNavigationBar(
         backgroundColor: palette.barBackground,
-        middle: const Text('New Chat'),
+        middle: Text(l10n.newChat),
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -208,7 +268,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
               padding: const EdgeInsets.all(16.0),
               child: CupertinoTextField(
                 controller: _searchController,
-                placeholder: 'Search user (e.g. @user:matrix.org)',
+                placeholder: l10n.searchUsers,
                 autofocus: true,
                 padding: const EdgeInsets.all(12),
                 prefix: const Padding(
@@ -231,7 +291,6 @@ class _NewChatScreenState extends State<NewChatScreen> {
                   } else if (text.startsWith('#') &&
                       text.contains(':') &&
                       _publicRooms.isEmpty) {
-                    // Try to join directly if it looks like a room alias
                     _joinRoom(text);
                   } else {
                     _performSearch(text);
@@ -240,75 +299,75 @@ class _NewChatScreenState extends State<NewChatScreen> {
               ),
             ),
 
-            // "Create Group" Button (Only if search is empty)
+            // Action Items (Create Group, Space, Join) - Only if search is empty
             if (_searchController.text.isEmpty)
-              GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    CupertinoPageRoute(
-                      builder: (_) => const CreateGroupScreen(),
+              Expanded(
+                child: ListView(
+                  children: [
+                    _ActionItem(
+                      icon: CupertinoIcons.person_3_fill,
+                      title: l10n.newGroup,
+                      subtitle: l10n
+                          .createGroupDescription, // Reuse string or generic desc
+                      onTap: () {
+                        Navigator.of(context).push(
+                          CupertinoPageRoute(
+                            builder: (_) => const CreateGroupScreen(),
+                          ),
+                        );
+                      },
+                      palette: palette,
                     ),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  color: palette.scaffoldBackground,
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: palette.primary.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          CupertinoIcons.person_3_fill,
-                          color: palette.primary,
-                          size: 24,
-                        ),
-                      ),
-                      const Gap(12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Create Group',
-                            style: TextStyle(
-                              color: palette.primary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                    Padding(
+                      padding: const EdgeInsets.only(left: 60),
+                      child: Container(color: palette.separator, height: 0.5),
+                    ),
+                    _ActionItem(
+                      icon: CupertinoIcons.folder_fill,
+                      title: l10n.newSpace,
+                      subtitle: l10n.spaceDescription,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          CupertinoPageRoute(
+                            builder: (_) => ChangeNotifierProvider.value(
+                              value: spaceController,
+                              child: const CreateSpaceScreen(),
                             ),
                           ),
-                          Text(
-                            'Create a new group chat',
-                            style: TextStyle(
-                              color: palette.secondaryText,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                        );
+                      },
+                      palette: palette,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 60),
+                      child: Container(color: palette.separator, height: 0.5),
+                    ),
+                    _ActionItem(
+                      icon: CupertinoIcons.tag_fill,
+                      title: l10n.joinByTag,
+                      subtitle: l10n.enterTag,
+                      onTap: _showJoinByTagDialog,
+                      palette: palette,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 60),
+                      child: Container(color: palette.separator, height: 0.5),
+                    ),
+                  ],
                 ),
               ),
 
-            if (_searchController.text.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(left: 76),
-                child: Container(color: palette.separator, height: 0.5),
-              ),
-
+            // Search Loading
             if (_isLoading)
               const Padding(
                 padding: EdgeInsets.all(20.0),
                 child: CupertinoActivityIndicator(),
               ),
-            if (_error != null && !_isLoading)
+
+            // Search Error
+            if (_error != null &&
+                !_isLoading &&
+                _searchController.text.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Text(
@@ -316,169 +375,242 @@ class _NewChatScreenState extends State<NewChatScreen> {
                   style: const TextStyle(color: CupertinoColors.systemGrey),
                 ),
               ),
+
+            // Search Results
+            if (_searchController.text.isNotEmpty)
+              Expanded(
+                child: CustomScrollView(
+                  slivers: [
+                    // User Search Results
+                    if (_searchResults.isNotEmpty) ...[
+                      SliverToBoxAdapter(
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                          child: Text(
+                            'USERS',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: palette.secondaryText,
+                            ),
+                          ),
+                        ),
+                      ),
+                      SliverList(
+                        delegate: SliverChildBuilderDelegate((context, index) {
+                          final profile = _searchResults[index];
+                          if (client == null) return const SizedBox();
+
+                          return GestureDetector(
+                            onTap: () => _createChat(profile.userId),
+                            child: Container(
+                              color: palette.scaffoldBackground,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              child: Row(
+                                children: [
+                                  MatrixAvatar(
+                                    avatarUrl: profile.avatarUrl,
+                                    name: profile.displayName ?? profile.userId,
+                                    client: client,
+                                    size: 44,
+                                    userId: profile.userId,
+                                  ),
+                                  const Gap(12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          profile.displayName ?? '',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 16,
+                                            color: palette.text,
+                                          ),
+                                        ),
+                                        Text(
+                                          profile.userId,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: palette.secondaryText,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }, childCount: _searchResults.length),
+                      ),
+                    ],
+
+                    // Public Rooms Results
+                    if (_publicRooms.isNotEmpty) ...[
+                      SliverToBoxAdapter(
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+                          child: Text(
+                            'PUBLIC ROOMS',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: palette.secondaryText,
+                            ),
+                          ),
+                        ),
+                      ),
+                      SliverList(
+                        delegate: SliverChildBuilderDelegate((context, index) {
+                          final room = _publicRooms[index];
+                          if (client == null) return const SizedBox();
+                          // Construct a fake room or use room chunk data
+                          final alias = room.canonicalAlias ?? room.roomId;
+
+                          return GestureDetector(
+                            onTap: () => _joinRoom(room.roomId),
+                            child: Container(
+                              color: palette.scaffoldBackground,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              child: Row(
+                                children: [
+                                  MatrixAvatar(
+                                    avatarUrl: room.avatarUrl,
+                                    name: room.name ?? alias,
+                                    client: client,
+                                    size: 44,
+                                    userId: room.roomId,
+                                  ),
+                                  const Gap(12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          room.name ?? 'Unknown Room',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 16,
+                                            color: palette.text,
+                                          ),
+                                        ),
+                                        if (room.topic != null)
+                                          Text(
+                                            room.topic!,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              color: palette.secondaryText,
+                                            ),
+                                          )
+                                        else
+                                          Text(
+                                            alias,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              color: palette.secondaryText,
+                                            ),
+                                          ),
+                                        Text(
+                                          '${room.numJoinedMembers} members',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: palette.secondaryText
+                                                .withValues(alpha: 0.7),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }, childCount: _publicRooms.length),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionItem extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final dynamic palette;
+
+  const _ActionItem({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    required this.palette,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        color: palette.scaffoldBackground,
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: palette.primary.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: palette.primary, size: 24),
+            ),
+            const Gap(12),
             Expanded(
-              child: CustomScrollView(
-                slivers: [
-                  // User Search Results
-                  if (_searchResults.isNotEmpty) ...[
-                    SliverToBoxAdapter(
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                        child: Text(
-                          'USERS',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: palette.secondaryText,
-                          ),
-                        ),
-                      ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: palette.primary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                     ),
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        final profile = _searchResults[index];
-                        if (client == null) return const SizedBox();
-
-                        return GestureDetector(
-                          onTap: () => _createChat(profile.userId),
-                          child: Container(
-                            color: palette.scaffoldBackground,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            child: Row(
-                              children: [
-                                MatrixAvatar(
-                                  avatarUrl: profile.avatarUrl,
-                                  name: profile.displayName ?? profile.userId,
-                                  client: client,
-                                  size: 44,
-                                  userId: profile.userId,
-                                ),
-                                const Gap(12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        profile.displayName ?? '',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 16,
-                                          color: palette.text,
-                                        ),
-                                      ),
-                                      Text(
-                                        profile.userId,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: palette.secondaryText,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }, childCount: _searchResults.length),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: palette.secondaryText,
+                      fontSize: 13,
                     ),
-                  ],
-
-                  // Public Rooms Results
-                  if (_publicRooms.isNotEmpty) ...[
-                    SliverToBoxAdapter(
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-                        child: Text(
-                          'PUBLIC ROOMS',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: palette.secondaryText,
-                          ),
-                        ),
-                      ),
-                    ),
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        final room = _publicRooms[index];
-                        if (client == null) return const SizedBox();
-                        // Construct a fake room or use room chunk data
-                        final alias = room.canonicalAlias ?? room.roomId;
-
-                        return GestureDetector(
-                          onTap: () => _joinRoom(room.roomId),
-                          child: Container(
-                            color: palette.scaffoldBackground,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            child: Row(
-                              children: [
-                                MatrixAvatar(
-                                  avatarUrl: room.avatarUrl,
-                                  name: room.name ?? alias,
-                                  client: client,
-                                  size: 44,
-                                  userId: room.roomId, // fallback
-                                ),
-                                const Gap(12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        room.name ?? 'Unknown Room',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 16,
-                                          color: palette.text,
-                                        ),
-                                      ),
-                                      if (room.topic != null)
-                                        Text(
-                                          room.topic!,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: palette.secondaryText,
-                                          ),
-                                        )
-                                      else
-                                        Text(
-                                          alias,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: palette.secondaryText,
-                                          ),
-                                        ),
-                                      Text(
-                                        '${room.numJoinedMembers} members',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: palette.secondaryText
-                                              .withOpacity(0.7),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }, childCount: _publicRooms.length),
-                    ),
-                  ],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ),
+            ),
+            Icon(
+              CupertinoIcons.chevron_forward,
+              color: palette.secondaryText.withValues(alpha: 0.5),
+              size: 20,
             ),
           ],
         ),

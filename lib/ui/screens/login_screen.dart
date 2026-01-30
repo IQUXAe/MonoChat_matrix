@@ -3,14 +3,15 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
+import 'package:gap/gap.dart';
 import 'package:matrix/matrix.dart';
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/services/matrix_service.dart';
 import 'package:provider/provider.dart';
-import 'package:gap/gap.dart';
+import '../theme/app_palette.dart';
 
-/// Login flow similar to FluffyChat:
+/// Login flow:
 /// 1. HomeserverPickerScreen - enter homeserver, check it
 /// 2. LoginCredentialsScreen - enter username/password OR use SSO
 
@@ -133,7 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
           : 'http://localhost:3001';
 
       // Control flag for cancellation
-      bool isCancelled = false;
+      var isCancelled = false;
 
       // Logic to show dialog and wait for result or cancellation
       Future<String?> showWaitingDialog() {
@@ -246,8 +247,10 @@ class _LoginScreenState extends State<LoginScreen> {
         initialDeviceDisplayName: 'MonoChat ${Platform.operatingSystem}',
       );
 
-      // Notify auth controller
-      context.read<AuthController>().notifyLoggedIn();
+      if (mounted) {
+        // Notify auth controller
+        context.read<AuthController>().notifyLoggedIn();
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -352,7 +355,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   /// Step 1: Homeserver Picker
-  Widget _buildHomeserverPicker(palette, bool isDark) {
+  Widget _buildHomeserverPicker(AppPalette palette, bool isDark) {
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
@@ -451,7 +454,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       padding: EdgeInsets.zero,
                       onPressed: _showHomeserverHelp,
                       child: Text(
-                        "What is a homeserver?",
+                        'What is a homeserver?',
                         style: TextStyle(fontSize: 14, color: palette.primary),
                       ),
                     ),
@@ -468,7 +471,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   /// Step 2: Credentials Form with SSO option
-  Widget _buildCredentialsForm(palette, bool isDark) {
+  Widget _buildCredentialsForm(AppPalette palette, bool isDark) {
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
@@ -595,9 +598,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         enabled: !_isLoading,
                         suffix: CupertinoButton(
                           padding: EdgeInsets.zero,
-                          minSize: 0,
                           onPressed: () =>
                               setState(() => _showPassword = !_showPassword),
+                          minimumSize: const Size(0, 0),
                           child: Icon(
                             _showPassword
                                 ? CupertinoIcons.eye_slash
@@ -641,7 +644,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           // TODO: Implement password reset
                         },
                         child: const Text(
-                          "Forgot password?",
+                          'Forgot password?',
                           style: TextStyle(
                             fontSize: 14,
                             color: CupertinoColors.systemRed,

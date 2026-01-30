@@ -73,9 +73,9 @@ class _DevicesScreenState extends State<DevicesScreen> {
               )
             else
               ..._devices!.map((device) {
-                if (device.deviceId == widget.client.deviceID)
+                if (device.deviceId == widget.client.deviceID) {
                   return const SizedBox();
-                if (device.deviceId == null) return const SizedBox();
+                }
 
                 // Display current status.
                 // Note: Real verification status check requires looking up DeviceKeys.
@@ -83,7 +83,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
                 // Here we could try to check properly if desired, but for now we re-use previous logic.
 
                 return _buildDeviceItem(context, device);
-              }).toList(),
+              }),
 
             const SizedBox(height: 24),
             if (_devices != null && _devices!.isNotEmpty)
@@ -135,7 +135,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  device.displayName ?? device.deviceId ?? 'Unknown Device',
+                  device.displayName ?? device.deviceId,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: palette.text,
@@ -185,12 +185,12 @@ class _DevicesScreenState extends State<DevicesScreen> {
 
       final request = await deviceKeys.startVerification();
 
-      if (mounted) {
+      if (context.mounted) {
         await KeyVerificationDialog.show(context, request);
         _loadDevices();
       }
     } catch (e) {
-      if (mounted) {
+      if (context.mounted) {
         showCupertinoDialog(
           context: context,
           builder: (c) => CupertinoAlertDialog(

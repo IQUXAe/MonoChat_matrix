@@ -3,15 +3,15 @@ import 'dart:typed_data';
 
 import 'package:logging/logging.dart';
 import 'package:matrix/matrix.dart' hide Result;
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/exceptions/app_exception.dart';
 import '../../core/exceptions/exception_mapper.dart';
 import '../../core/result.dart';
 import '../../domain/repositories/chat_repository.dart';
-import '../../services/matrix_service.dart';
 import '../../services/background_uploader.dart';
+import '../../services/matrix_service.dart';
 
 /// Matrix SDK implementation of [ChatRepository].
 class MatrixChatRepository implements ChatRepository {
@@ -34,7 +34,7 @@ class MatrixChatRepository implements ChatRepository {
         return const Failure(ClientNotInitializedException());
       }
 
-      String pathForUpload = filePath ?? '';
+      var pathForUpload = filePath ?? '';
 
       // If no path provided (e.g. in-memory bytes), write to temp file
       // to ensure we can use the efficient background uploader
@@ -71,7 +71,7 @@ class MatrixChatRepository implements ChatRepository {
       }
 
       // Fallback: main thread upload
-      Uint8List? bytesToUpload = bytes;
+      var bytesToUpload = bytes;
       if (bytesToUpload == null && pathForUpload.isNotEmpty) {
         try {
           bytesToUpload = await File(pathForUpload).readAsBytes();
@@ -151,6 +151,41 @@ class MatrixChatRepository implements ChatRepository {
     } catch (e) {
       _log.warning('Background upload exception', e);
       return null;
+    }
+  }
+
+  @override
+  Future<Result<String>> editTextMessage({
+    required Room room,
+    required String originalEventId,
+    required String newText,
+  }) async {
+    try {
+      // Matrix SDK handles the m.new_content structure automatically
+      // when using editEventId
+      final eventId = await room.sendTextEvent(
+        newText,
+        editEventId: originalEventId,
+      );
+      return Success(eventId ?? '');
+    } catch (e, s) {
+      _log.warning('Failed to edit text message', e, s);
+      return Failure(ExceptionMapper.map(e, s));
+    }
+  }
+
+  @override
+  Future<Result<void>> redactMessage({
+    required Room room,
+    required String eventId,
+    String? reason,
+  }) async {
+    try {
+      await room.redactEvent(eventId, reason: reason);
+      return const Success(null);
+    } catch (e, s) {
+      _log.warning('Failed to redact message', e, s);
+      return Failure(ExceptionMapper.map(e, s));
     }
   }
 

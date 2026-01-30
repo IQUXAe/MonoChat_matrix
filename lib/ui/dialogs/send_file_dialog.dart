@@ -1,17 +1,16 @@
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
-import 'package:cross_file/cross_file.dart';
+import 'package:gap/gap.dart';
 import 'package:matrix/matrix.dart';
 import 'package:mime/mime.dart';
-import 'package:gap/gap.dart';
+import 'package:monochat/controllers/theme_controller.dart';
+import 'package:monochat/l10n/generated/app_localizations.dart';
+import 'package:provider/provider.dart';
 
 import '../../utils/size_string.dart';
-import 'package:monochat/l10n/generated/app_localizations.dart';
-import 'package:monochat/controllers/theme_controller.dart';
-import 'package:provider/provider.dart';
 
 /// iOS-styled dialog for sending files with compression options.
 ///
@@ -197,8 +196,8 @@ class _SendFileDialogState extends State<SendFileDialog> {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: CupertinoColors.activeGreen.withOpacity(
-                              0.15,
+                            color: CupertinoColors.activeGreen.withValues(
+                              alpha: 0.15,
                             ),
                             borderRadius: BorderRadius.circular(4),
                           ),
@@ -324,7 +323,7 @@ class _SendFileDialogState extends State<SendFileDialog> {
                             File(file.path),
                             fit: BoxFit.cover,
                             cacheWidth: 320,
-                            errorBuilder: (_, __, ___) => const Center(
+                            errorBuilder: (_, _, _) => const Center(
                               child: Icon(
                                 CupertinoIcons.photo,
                                 size: 48,
@@ -345,7 +344,7 @@ class _SendFileDialogState extends State<SendFileDialog> {
                         width: 28,
                         height: 28,
                         decoration: BoxDecoration(
-                          color: CupertinoColors.black.withOpacity(0.6),
+                          color: CupertinoColors.black.withValues(alpha: 0.6),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(

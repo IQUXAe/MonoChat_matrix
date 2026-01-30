@@ -1,13 +1,13 @@
 import 'package:flutter/cupertino.dart';
-import 'package:provider/provider.dart';
-
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
+import 'package:monochat/services/app_icon_service.dart';
 import 'package:monochat/ui/screens/cache_settings_screen.dart';
 import 'package:monochat/ui/screens/devices_screen.dart';
+import 'package:monochat/ui/screens/notifications_screen.dart';
 import 'package:monochat/ui/screens/security_settings_screen.dart';
-import 'package:monochat/services/app_icon_service.dart';
+import 'package:provider/provider.dart';
 
 /// Settings screen with iOS-style grouped settings.
 ///
@@ -109,26 +109,21 @@ class SettingsScreen extends StatelessWidget {
                   _buildSettingsGroup(
                     context,
                     children: [
-                      _SettingsToggleTile(
+                      _SettingsTile(
                         icon: CupertinoIcons.bell_fill,
                         iconColor: CupertinoColors.systemRed,
-                        title: 'Push Notifications',
-                        value: true,
-                        onChanged: (value) {},
-                      ),
-                      _SettingsToggleTile(
-                        icon: CupertinoIcons.speaker_2_fill,
-                        iconColor: CupertinoColors.systemOrange,
-                        title: 'Sounds',
-                        value: true,
-                        onChanged: (value) {},
-                      ),
-                      _SettingsToggleTile(
-                        icon: CupertinoIcons.app_badge_fill,
-                        iconColor: CupertinoColors.systemPurple,
-                        title: 'Badge Count',
-                        value: true,
-                        onChanged: (value) {},
+                        title: 'Notifications',
+                        trailing: const _SettingsValue(
+                          value: '',
+                          showChevron: true,
+                        ),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            CupertinoPageRoute(
+                              builder: (_) => const NotificationsScreen(),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -176,7 +171,7 @@ class SettingsScreen extends StatelessWidget {
                         icon: CupertinoIcons.eye_slash_fill,
                         iconColor: CupertinoColors.systemGrey,
                         title: 'Read Receipts',
-                        trailing: _SettingsValue(
+                        trailing: const _SettingsValue(
                           value: 'On',
                         ), // Simplified for now
                         onTap: () {},
@@ -185,7 +180,7 @@ class SettingsScreen extends StatelessWidget {
                         icon: CupertinoIcons.pencil_ellipsis_rectangle,
                         iconColor: CupertinoColors.systemTeal,
                         title: 'Typing Indicators',
-                        trailing: _SettingsValue(value: 'On'),
+                        trailing: const _SettingsValue(value: 'On'),
                         onTap: () {},
                       ),
                     ],
@@ -236,11 +231,11 @@ class SettingsScreen extends StatelessWidget {
                   _buildSettingsGroup(
                     context,
                     children: [
-                      _SettingsTile(
+                      const _SettingsTile(
                         icon: CupertinoIcons.info_circle_fill,
                         iconColor: CupertinoColors.systemBlue,
                         title: 'Version',
-                        trailing: const _SettingsValue(
+                        trailing: _SettingsValue(
                           value: '1.0.0',
                           showChevron: false,
                         ),
@@ -371,7 +366,7 @@ class SettingsScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                "Text Size",
+                'Text Size',
                 style: TextStyle(
                   color: palette.text,
                   fontWeight: FontWeight.bold,
@@ -383,7 +378,7 @@ class SettingsScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    "A",
+                    'A',
                     style: TextStyle(
                       fontSize: 14,
                       color: palette.secondaryText,
@@ -405,7 +400,7 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(width: 16),
                   Text(
-                    "A",
+                    'A',
                     style: TextStyle(fontSize: 24, color: palette.text),
                   ),
                 ],
@@ -448,7 +443,7 @@ class SettingsScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                "Accent Color",
+                'Accent Color',
                 style: TextStyle(
                   color: palette.text,
                   fontWeight: FontWeight.bold,
@@ -498,7 +493,7 @@ class SettingsScreen extends StatelessWidget {
                             ],
                           ),
                           child: isSelected && color == null
-                              ? Icon(
+                              ? const Icon(
                                   CupertinoIcons.checkmark,
                                   color: CupertinoColors.white,
                                   size: 20,
@@ -614,64 +609,6 @@ class _SettingsTile extends StatelessWidget {
             if (trailing != null) trailing!,
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Settings tile with toggle switch.
-class _SettingsToggleTile extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  const _SettingsToggleTile({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          // Icon with colored background
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: iconColor,
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: Icon(icon, size: 18, color: CupertinoColors.white),
-          ),
-          const SizedBox(width: 12),
-
-          // Title
-          Expanded(
-            child: Text(
-              title,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w400,
-                color: context.watch<ThemeController>().palette.text,
-              ),
-            ),
-          ),
-
-          // Toggle
-          CupertinoSwitch(
-            value: value,
-            onChanged: onChanged,
-            activeTrackColor: CupertinoColors.activeGreen,
-          ),
-        ],
       ),
     );
   }

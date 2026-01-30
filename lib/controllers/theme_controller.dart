@@ -1,6 +1,6 @@
 import 'package:flutter/cupertino.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:monochat/ui/theme/app_palette.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum AppThemeMode { system, light, dark }
 

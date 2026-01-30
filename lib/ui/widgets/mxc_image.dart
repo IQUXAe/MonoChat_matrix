@@ -4,9 +4,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/cupertino.dart';
 import 'package:matrix/matrix.dart';
-import 'package:monochat/utils/client_download_content_extension.dart';
-
 import 'package:monochat/services/cache/secure_cache_service.dart';
+import 'package:monochat/utils/client_download_content_extension.dart';
 import 'package:monochat/utils/matrix_file_extension.dart';
 
 class MxcImage extends StatefulWidget {
@@ -23,11 +22,13 @@ class MxcImage extends StatefulWidget {
   final ThumbnailMethod thumbnailMethod;
   final Widget Function(BuildContext context)? placeholder;
   final String? cacheKey;
+  final String? cacheCategory;
   final Client? client;
   final BorderRadius borderRadius;
   final bool preloadImage;
 
   const MxcImage({
+    super.key,
     this.uri,
     this.event,
     this.width,
@@ -41,10 +42,10 @@ class MxcImage extends StatefulWidget {
     this.animationCurve = Curves.easeOut,
     this.thumbnailMethod = ThumbnailMethod.scale,
     this.cacheKey,
+    this.cacheCategory,
     this.client,
     this.borderRadius = BorderRadius.zero,
     this.preloadImage = false,
-    super.key,
   });
 
   @override
@@ -87,6 +88,10 @@ class _MxcImageState extends State<MxcImage> {
     final event = widget.event;
 
     if (uri != null) {
+      if (!uri.hasAbsolutePath || uri.host.isEmpty) {
+        return null;
+      }
+
       final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
       final width = widget.width;
       final realWidth = width == null ? null : width * devicePixelRatio;
@@ -169,7 +174,9 @@ class _MxcImageState extends State<MxcImage> {
       if (data != null) {
         // Save to Secure Cache
         if (cacheKey != null) {
-          await SecureCacheService().put(cacheKey, data);
+          final category =
+              widget.cacheCategory ?? (widget.isThumbnail ? 'image' : null);
+          await SecureCacheService().put(cacheKey, data, category: category);
         }
       }
 
@@ -203,6 +210,7 @@ class _MxcImageState extends State<MxcImage> {
   void initState() {
     super.initState();
     if (widget.preloadImage) {
+      // ignore: discard_returned_futures
       _tryLoad();
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {

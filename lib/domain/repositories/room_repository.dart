@@ -42,7 +42,7 @@ abstract class RoomRepository {
   Future<Result<List<Profile>>> searchUsers(String query);
 
   /// Searches for public rooms.
-  Future<Result<List<PublicRoomsChunk>>> searchPublicRooms(
+  Future<Result<List<PublishedRoomsChunk>>> searchPublicRooms(
     String query, {
     String? server,
   });

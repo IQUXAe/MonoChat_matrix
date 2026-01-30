@@ -1,12 +1,13 @@
 import 'dart:io';
+
+import 'package:chewie/chewie.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:matrix/matrix.dart';
-import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
-import 'package:path_provider/path_provider.dart';
 // import 'package:monochat/utils/client_download_extension.dart';
 import 'package:monochat/ui/widgets/mxc_image.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
 
 class VideoBubble extends StatefulWidget {
   final Event event;
@@ -130,17 +131,17 @@ class _VideoBubbleState extends State<VideoBubble> {
   @override
   Widget build(BuildContext context) {
     // Info for thumbnail ratio
-    final Map? info = widget.event.content['info'] as Map?;
-    final int? w = info?['w'] as int?;
-    final int? h = info?['h'] as int?;
+    final info = widget.event.content['info'] as Map?;
+    final w = info?['w'] as int?;
+    final h = info?['h'] as int?;
 
-    double aspectRatio = 16 / 9;
+    var aspectRatio = 16 / 9;
     if (w != null && h != null && h > 0) {
       aspectRatio = w / h;
     }
 
     double width = 240;
-    double height = width / aspectRatio;
+    var height = width / aspectRatio;
 
     // Constraints
     if (width > 300) {
