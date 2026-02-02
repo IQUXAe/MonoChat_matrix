@@ -214,6 +214,10 @@
     "mentionsOnly": "Только упоминания",
     "allMessages": "Все сообщения",
     "roomNotificationSuccess": "Настройки уведомлений обновлены",
-    "roomNotificationError": "Не удалось обновить настройки уведомлений"
+    "roomNotificationError": "Не удалось обновить настройки уведомлений",
+    "pinChat": "Закрепить чат",
+    "unpinChat": "Открепить чат",
+  "pinnedMessage": "Закрепленное сообщение",
+  "messageNotFound": "Сообщение не найдено"
 }
 

@@ -1519,6 +1519,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Failed to update notification settings'**
   String get roomNotificationError;
+
+  /// Pin chat action
+  ///
+  /// In en, this message translates to:
+  /// **'Pin Chat'**
+  String get pinChat;
+
+  /// Unpin chat action
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin Chat'**
+  String get unpinChat;
+
+  /// Header for pinned message in chat
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned Message'**
+  String get pinnedMessage;
+
+  /// Placeholder when pinned message content is not available
+  ///
+  /// In en, this message translates to:
+  /// **'Message not found'**
+  String get messageNotFound;
 }
 
 class _AppLocalizationsDelegate

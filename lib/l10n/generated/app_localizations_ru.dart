@@ -772,4 +772,16 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get roomNotificationError =>
       'Не удалось обновить настройки уведомлений';
+
+  @override
+  String get pinChat => 'Закрепить чат';
+
+  @override
+  String get unpinChat => 'Открепить чат';
+
+  @override
+  String get pinnedMessage => 'Закрепленное сообщение';
+
+  @override
+  String get messageNotFound => 'Сообщение не найдено';
 }

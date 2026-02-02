@@ -106,10 +106,14 @@ class _RoomListScreenState extends State<RoomListScreen> {
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    CupertinoActivityIndicator(radius: 8),
-                                    SizedBox(width: 8),
+                                    Icon(
+                                      CupertinoIcons.wifi_slash,
+                                      size: 16,
+                                      color: CupertinoColors.secondaryLabel,
+                                    ),
+                                    SizedBox(width: 6),
                                     Text(
-                                      'Waiting for network...',
+                                      'You are offline',
                                       style: TextStyle(
                                         fontSize: 14,
                                         color: CupertinoColors.secondaryLabel,
@@ -123,10 +127,6 @@ class _RoomListScreenState extends State<RoomListScreen> {
                         ),
                         trailing: CupertinoButton(
                           padding: EdgeInsets.zero,
-                          child: const Icon(
-                            CupertinoIcons.person_crop_circle,
-                            size: 26,
-                          ),
                           onPressed: () {
                             Navigator.of(context).push(
                               CupertinoPageRoute(
@@ -134,6 +134,7 @@ class _RoomListScreenState extends State<RoomListScreen> {
                               ),
                             );
                           },
+                          child: _CurrentUserAvatar(client: client),
                         ),
                         border: Border(
                           bottom: BorderSide(
@@ -408,6 +409,54 @@ class _RoomTileState extends State<_RoomTile> {
           );
         }
       },
+      onLongPress: () {
+        final isPinned = widget.room.tags.containsKey('m.favourite');
+        showCupertinoModalPopup(
+          context: context,
+          builder: (context) => CupertinoActionSheet(
+            actions: [
+              CupertinoActionSheetAction(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  try {
+                    if (isPinned) {
+                      await widget.room.removeTag('m.favourite');
+                    } else {
+                      await widget.room.addTag('m.favourite', order: 0.5);
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      showCupertinoDialog(
+                        context: context,
+                        builder: (c) => CupertinoAlertDialog(
+                          title: const Text('Error'),
+                          content: Text('Failed to update pin status: $e'),
+                          actions: [
+                            CupertinoDialogAction(
+                              child: const Text('OK'),
+                              onPressed: () => Navigator.pop(c),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                  }
+                },
+                child: Text(
+                  isPinned
+                      ? AppLocalizations.of(context)?.unpinChat ?? 'Unpin Chat'
+                      : AppLocalizations.of(context)?.pinChat ?? 'Pin Chat',
+                ),
+              ),
+            ],
+            cancelButton: CupertinoActionSheetAction(
+              isDefaultAction: true,
+              onPressed: () => Navigator.pop(context),
+              child: Text(AppLocalizations.of(context)!.cancel),
+            ),
+          ),
+        );
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 100),
         color: _isPressed
@@ -470,6 +519,16 @@ class _RoomTileState extends State<_RoomTile> {
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
+                              ),
+                            ],
+                            if (widget.room.tags.containsKey(
+                              'm.favourite',
+                            )) ...[
+                              const SizedBox(width: 4),
+                              Icon(
+                                CupertinoIcons.pin_fill,
+                                size: 14,
+                                color: palette.secondaryText,
                               ),
                             ],
                           ],
@@ -557,6 +616,50 @@ class _RoomTileState extends State<_RoomTile> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _CurrentUserAvatar extends StatefulWidget {
+  final Client client;
+
+  const _CurrentUserAvatar({super.key, required this.client});
+
+  @override
+  State<_CurrentUserAvatar> createState() => _CurrentUserAvatarState();
+}
+
+class _CurrentUserAvatarState extends State<_CurrentUserAvatar> {
+  Uri? _avatarUrl;
+  String? _displayName;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    if (widget.client.userID == null) return;
+    try {
+      final profile = await widget.client.fetchOwnProfile();
+      if (mounted) {
+        setState(() {
+          _avatarUrl = profile.avatarUrl;
+          _displayName = profile.displayName;
+        });
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = widget.client.userID;
+    return MatrixAvatar(
+      avatarUrl: _avatarUrl,
+      name: _displayName ?? userId,
+      client: widget.client,
+      size: 32,
     );
   }
 }

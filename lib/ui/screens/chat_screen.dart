@@ -23,7 +23,9 @@ import 'package:monochat/ui/widgets/chat/floating_input_bar.dart';
 import 'package:monochat/ui/widgets/chat/message_bubble.dart';
 import 'package:monochat/ui/widgets/chat/message_status_indicator.dart'
     as indicators;
+import 'package:monochat/ui/widgets/chat/pinned_messages_header.dart'; // Added
 import 'package:monochat/ui/widgets/chat/read_receipts.dart';
+import 'package:monochat/ui/widgets/chat/scroll_to_bottom_button.dart';
 import 'package:monochat/ui/widgets/chat/system_message_item.dart';
 import 'package:monochat/ui/widgets/fallback_file_picker.dart';
 import 'package:monochat/utils/extensions/stream_extension.dart';
@@ -49,6 +51,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   late final ChatController _controller;
   bool _isExiting = false;
   bool _showScrollButton = false;
+  int _pinnedMessageCount = 0;
 
   @override
   void initState() {
@@ -221,6 +224,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _togglePin(Event event) async {
+    try {
+      final pinnedEvent = widget.room.getState('m.room.pinned_events');
+      final content = pinnedEvent?.content ?? {};
+      List<String> pinnedIds = [];
+
+      final pinnedList = content['pinned'];
+      if (pinnedList is List) {
+        pinnedIds = pinnedList.map((e) => e.toString()).toList();
+      }
+
+      final isPinned = pinnedIds.contains(event.eventId);
+      if (isPinned) {
+        pinnedIds.remove(event.eventId);
+      } else {
+        pinnedIds.add(event.eventId);
+      }
+
+      await widget.room.client.setRoomStateWithKey(
+        widget.room.id,
+        'm.room.pinned_events',
+        '',
+        {'pinned': pinnedIds},
+      );
+    } catch (e) {
+      if (!mounted) return;
+      // ... error
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.watch<ThemeController>().palette;
@@ -270,7 +303,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       top: 0,
                       left: 0,
                       right: 0,
-                      child: ChatAppBar(room: widget.room, client: client),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ChatAppBar(room: widget.room, client: client),
+                          PinnedMessagesHeader(
+                            room: widget.room,
+                            onMessageTap: _scrollToEvent,
+                            onCountChanged: (count) {
+                              if (_pinnedMessageCount != count) {
+                                setState(() => _pinnedMessageCount = count);
+                              }
+                            },
+                          ),
+                        ],
+                      ),
                     ),
 
                     // 3. Floating Input Bar (truly floating, no background)
@@ -306,93 +353,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ),
 
                     // 5. Scroll to Bottom Button
-                    if (_showScrollButton)
-                      Positioned(
-                        right: 16,
-                        bottom: MediaQuery.of(context).viewInsets.bottom + 80,
-                        child: StreamBuilder(
-                          stream: widget.room.client.onSync.stream,
-                          builder: (context, _) {
-                            final unreadCount = widget.room.notificationCount;
-                            return GestureDetector(
-                              onTap: () {
-                                _scrollController.animateTo(
-                                  0,
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.easeOut,
-                                );
-                              },
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: CupertinoColors
-                                          .secondarySystemBackground
-                                          .resolveFrom(context),
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.2,
-                                          ),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                      border: Border.all(
-                                        color: CupertinoColors.systemGrey4
-                                            .resolveFrom(context),
-                                        width: 0.5,
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      CupertinoIcons.arrow_down,
-                                      color: CupertinoColors.label.resolveFrom(
-                                        context,
-                                      ),
-                                      size: 24,
-                                    ),
-                                  ),
-                                  if (unreadCount > 0)
-                                    Positioned(
-                                      top: -5,
-                                      right: -5,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: CupertinoColors.activeGreen,
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                          border: Border.all(
-                                            color: palette.scaffoldBackground,
-                                            width: 2,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          unreadCount > 99
-                                              ? '99+'
-                                              : unreadCount.toString(),
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutCubic,
+                      right: 16,
+                      bottom:
+                          MediaQuery.of(context).viewInsets.bottom +
+                          80 +
+                          (controller.replyingTo != null ? 50 : 0),
+                      child: StreamBuilder(
+                        stream: widget.room.client.onSync.stream,
+                        builder: (context, _) {
+                          return ScrollToBottomButton(
+                            visible: _showScrollButton,
+                            unreadCount: widget.room.notificationCount,
+                            onPressed: () {
+                              _scrollController.animateTo(
+                                0,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              );
+                            },
+                          );
+                        },
                       ),
-
+                    ),
                     // 4. Drag overlay
                     if (controller.isDragging)
                       Container(
@@ -536,7 +521,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       event.type == EventTypes.RoomTopic ||
                       event.type == EventTypes.RoomCreate ||
                       event.type == 'm.room.encryption' ||
-                      event.type == 'm.key.verification.request') &&
+                      event.type == 'm.key.verification.request' ||
+                      event.type.startsWith('m.call.')) &&
                   event.relationshipType != 'm.replace'; // Filter edits
             }).toList();
 
@@ -593,7 +579,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       50 +
                       MediaQuery.of(context).padding.bottom +
                       MediaQuery.of(context).viewInsets.bottom,
-                  top: MediaQuery.of(context).padding.top + 60 + 8,
+                  top:
+                      MediaQuery.of(context).padding.top +
+                      60 +
+                      8 +
+                      (_pinnedMessageCount > 0 ? 56 : 0),
                 ),
                 semanticChildCount: visibleEvents.length,
                 childrenDelegate: SliverChildBuilderDelegate(
@@ -627,6 +617,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         prevEvent.senderId != event.senderId ||
                         (prevEvent.type == EventTypes.RoomMember);
 
+                    final pinnedState = widget.room.getState(
+                      'm.room.pinned_events',
+                    );
+                    final pinnedContent = pinnedState?.content['pinned'];
+                    final pinnedIds = (pinnedContent is List)
+                        ? pinnedContent.cast<String>()
+                        : <String>[];
+                    final isPinned = pinnedIds.contains(event.eventId);
+
                     return _MessageListItem(
                       key: ValueKey(event.eventId),
                       event: event,
@@ -643,6 +642,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       onReply: () => controller.setReplyTo(event),
                       onEdit: () => controller.startEditing(event),
                       onDelete: () => controller.redactEvent(event.eventId),
+                      onPin: () => _togglePin(event),
+                      isPinned: isPinned,
                     );
                   },
                   childCount: visibleEvents.length,
@@ -886,7 +887,12 @@ class _MessageListItem extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     required this.timeline,
+    this.onPin,
+    this.isPinned = false,
   });
+
+  final VoidCallback? onPin;
+  final bool isPinned;
 
   final Timeline timeline;
 
@@ -969,7 +975,8 @@ class _MessageListItemState extends State<_MessageListItem>
         widget.event.type == EventTypes.RoomName ||
         widget.event.type == EventTypes.RoomTopic ||
         widget.event.type == EventTypes.RoomCreate ||
-        widget.event.type == 'm.room.encryption';
+        widget.event.type == 'm.room.encryption' ||
+        widget.event.type.startsWith('m.call.');
 
     if (isSystemMessage) {
       return AutoScrollTag(
@@ -1029,6 +1036,8 @@ class _MessageListItemState extends State<_MessageListItem>
                   onReply: widget.onReply,
                   onEdit: widget.onEdit,
                   onDelete: widget.onDelete,
+                  onPin: widget.onPin,
+                  isPinned: widget.isPinned,
                 ),
                 Builder(
                   builder: (context) {

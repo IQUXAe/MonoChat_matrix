@@ -769,4 +769,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get roomNotificationError => 'Failed to update notification settings';
+
+  @override
+  String get pinChat => 'Pin Chat';
+
+  @override
+  String get unpinChat => 'Unpin Chat';
+
+  @override
+  String get pinnedMessage => 'Pinned Message';
+
+  @override
+  String get messageNotFound => 'Message not found';
 }

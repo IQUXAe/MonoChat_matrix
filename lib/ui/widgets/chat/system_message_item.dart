@@ -99,6 +99,14 @@ class SystemMessageItem extends StatelessWidget {
         final creator = event.senderId;
         return '$creator created the group';
     }
+
+    if (event.type.startsWith('m.call.')) {
+      if (event.type == EventTypes.CallInvite) {
+        return '${event.senderFromMemoryOrFallback.calcDisplayname()} started a call (not supported yet)';
+      }
+      return null; // hide other call events to avoid clutter
+    }
+
     return null;
   }
 }

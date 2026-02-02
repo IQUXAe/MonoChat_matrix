@@ -92,6 +92,23 @@ class ChatAppBar extends StatelessWidget {
     );
   }
 
+  void _showCallNotSupportedDialog(BuildContext context) {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Calls'),
+        content: const Text('Calls are not supported yet.'),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
@@ -196,6 +213,17 @@ class ChatAppBar extends StatelessWidget {
                                 ),
                               ),
                           ],
+                        ),
+                      ),
+
+                      // Call Button
+                      CupertinoButton(
+                        padding: const EdgeInsets.all(8),
+                        onPressed: () => _showCallNotSupportedDialog(context),
+                        child: Icon(
+                          CupertinoIcons.phone,
+                          size: 24,
+                          color: palette.primary,
                         ),
                       ),
 

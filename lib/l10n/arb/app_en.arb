@@ -585,6 +585,14 @@
     "roomNotificationSuccess": "Notification settings updated",
     "@roomNotificationSuccess": { "description": "Success message after changing notification settings" },
     "roomNotificationError": "Failed to update notification settings",
-    "@roomNotificationError": { "description": "Error message when notification settings fail" }
+    "@roomNotificationError": { "description": "Error message when notification settings fail" },
+    "pinChat": "Pin Chat",
+    "@pinChat": { "description": "Pin chat action" },
+    "unpinChat": "Unpin Chat",
+    "@unpinChat": { "description": "Unpin chat action" },
+    "pinnedMessage": "Pinned Message",
+    "@pinnedMessage": { "description": "Header for pinned message in chat" },
+    "messageNotFound": "Message not found",
+    "@messageNotFound": { "description": "Placeholder when pinned message content is not available" }
 }
 

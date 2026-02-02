@@ -104,8 +104,9 @@ class RoomListController extends ChangeNotifier {
       },
       onError: (e) {
         _log.warning('Sync error (likely offline)', e);
-        if (!_isOffline) {
+        if (!_isOffline || _isPreloading) {
           _isOffline = true;
+          _isPreloading = false; // Unblock UI on error
           notifyListeners();
         }
       },
@@ -115,6 +116,12 @@ class RoomListController extends ChangeNotifier {
   void _updateSortedRooms() {
     final rooms = List<Room>.from(_roomRepository.rooms);
     rooms.sort((a, b) {
+      final aFav = a.tags.containsKey('m.favourite');
+      final bFav = b.tags.containsKey('m.favourite');
+
+      if (aFav && !bFav) return -1;
+      if (!aFav && bFav) return 1;
+
       final aTime =
           a.lastEvent?.originServerTs ?? DateTime.fromMillisecondsSinceEpoch(0);
       final bTime =

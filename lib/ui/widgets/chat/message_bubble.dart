@@ -26,6 +26,8 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback onReply;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onPin;
+  final bool isPinned;
 
   const MessageBubble({
     super.key,
@@ -39,6 +41,8 @@ class MessageBubble extends StatelessWidget {
     required this.onReply,
     required this.onEdit,
     required this.onDelete,
+    this.onPin,
+    this.isPinned = false,
   });
 
   @override
@@ -144,6 +148,14 @@ class MessageBubble extends StatelessWidget {
                   _showReactionPicker(context);
                 },
               ),
+              if (onPin != null)
+                CupertinoContextMenuAction(
+                  child: Text(isPinned ? 'Unpin' : 'Pin'),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    onPin!();
+                  },
+                ),
               CupertinoContextMenuAction(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
