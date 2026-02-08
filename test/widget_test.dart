@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/room_list_controller.dart';
+import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/data/repositories/matrix_auth_repository.dart';
 import 'package:monochat/data/repositories/matrix_room_repository.dart';
 import 'package:monochat/main.dart';
@@ -22,6 +23,7 @@ void main() {
           ChangeNotifierProvider(
             create: (_) => RoomListController(roomRepository),
           ),
+          ChangeNotifierProvider(create: (_) => ThemeController()),
         ],
         child: const MonoChatApp(),
       ),

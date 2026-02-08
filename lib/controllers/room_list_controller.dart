@@ -64,6 +64,8 @@ class RoomListController extends ChangeNotifier {
       _isPreloading = false;
       _updateSortedRooms();
       _preloadAssets();
+    } else {
+      _isPreloading = false;
     }
     // If rooms are empty, we keep _isPreloading = true until first sync or timeout
 

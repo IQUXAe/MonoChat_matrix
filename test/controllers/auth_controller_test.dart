@@ -111,7 +111,7 @@ void main() {
 
         expect(
           () => controller.login('user', 'wrong', 'matrix.org'),
-          throwsA(isA<String>()),
+          throwsA(isA<InvalidCredentialsException>()),
         );
       });
     });

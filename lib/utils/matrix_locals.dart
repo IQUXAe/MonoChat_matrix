@@ -7,7 +7,7 @@ class MatrixLocals extends MatrixLocalizations {
   MatrixLocals(this.l10n);
 
   @override
-  String get anyoneCanJoin => 'Anyone can join';
+  String get anyoneCanJoin => l10n.anyoneCanJoin;
 
   @override
   String get guestsAreForbidden => 'Guests are forbidden';
@@ -244,7 +244,7 @@ class MatrixLocals extends MatrixLocalizations {
       'Was direct chat: $oldDisplayName';
 
   @override
-  String get unknownUser => 'Unknown user';
+  String get unknownUser => l10n.unknownUser;
 
   @override
   String hasKnocked(String targetName) => '$targetName has knocked';
