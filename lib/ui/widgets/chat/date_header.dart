@@ -1,6 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show DateUtils;
-import 'package:intl/intl.dart';
+import 'package:monochat/core/utils/date_formats.dart';
 
 class DateHeader extends StatelessWidget {
   final DateTime date;
@@ -11,7 +11,7 @@ class DateHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = DateUtils.isSameDay(date, DateTime.now())
         ? 'Today'
-        : DateFormat('EEEE, MMM d, yyyy').format(date);
+        : AppDateFormats.fullDate.format(date);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 20.0),

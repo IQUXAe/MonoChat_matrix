@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 
-import 'package:intl/intl.dart';
 import 'package:matrix/matrix.dart';
+import 'package:monochat/core/utils/date_formats.dart';
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/room_list_controller.dart';
 import 'package:monochat/controllers/space_controller.dart';
@@ -364,7 +364,7 @@ class _RoomTileState extends State<_RoomTile> {
     }
 
     final timeStr = lastEvent != null
-        ? DateFormat('HH:mm').format(lastEvent.originServerTs)
+        ? AppDateFormats.hourMinute.format(lastEvent.originServerTs)
         : '';
 
     return GestureDetector(

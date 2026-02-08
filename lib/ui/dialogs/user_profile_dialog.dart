@@ -1,8 +1,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
-import 'package:intl/intl.dart';
 import 'package:matrix/matrix.dart';
+import 'package:monochat/core/utils/date_formats.dart';
 import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:monochat/ui/widgets/avatar_viewer.dart';
@@ -317,7 +317,7 @@ class UserProfileDialog extends StatelessWidget {
         statusText = l10n.lastSeenHoursAgo(diff.inHours);
         statusColor = CupertinoColors.systemGrey;
       } else {
-        statusText = l10n.lastSeenAt(DateFormat('MMM d').format(lastSeen));
+        statusText = l10n.lastSeenAt(AppDateFormats.monthDay.format(lastSeen));
         statusColor = CupertinoColors.systemGrey;
       }
     } else {

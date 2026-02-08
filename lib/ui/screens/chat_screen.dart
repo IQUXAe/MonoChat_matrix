@@ -306,7 +306,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          ChatAppBar(room: widget.room, client: client),
+                          ChatAppBar(
+                            room: widget.room,
+                            client: client,
+                            onEventTap: _scrollToEvent,
+                          ),
                           PinnedMessagesHeader(
                             room: widget.room,
                             onMessageTap: _scrollToEvent,
@@ -510,21 +514,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             }
 
             // FILTER VISIBLE EVENTS HERE
-            // Filtering hidden events (like membership changes) significantly improves
-            // rendering performance, especially in large groups.
-            final visibleEvents = timeline.events.where((event) {
-              return (event.type == EventTypes.Message ||
-                      event.type == EventTypes.Sticker ||
-                      event.type == EventTypes.Encrypted ||
-                      event.type == EventTypes.RoomMember ||
-                      event.type == EventTypes.RoomName ||
-                      event.type == EventTypes.RoomTopic ||
-                      event.type == EventTypes.RoomCreate ||
-                      event.type == 'm.room.encryption' ||
-                      event.type == 'm.key.verification.request' ||
-                      event.type.startsWith('m.call.')) &&
-                  event.relationshipType != 'm.replace'; // Filter edits
-            }).toList();
+            final visibleEvents = _getVisibleEvents(timeline);
 
             // Create index map for O(1) lookup in findChildIndexCallback
             // This prevents O(N) scan per item during layout updates, crucial for large lists
@@ -828,14 +818,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   // --- UI Components for Input ---
 
+  List<Event> _getVisibleEvents(Timeline timeline) {
+    // Filtering hidden events (like membership changes) significantly improves
+    // rendering performance, especially in large groups.
+    return timeline.events.where((event) {
+      return (event.type == EventTypes.Message ||
+              event.type == EventTypes.Sticker ||
+              event.type == EventTypes.Encrypted ||
+              event.type == EventTypes.RoomMember ||
+              event.type == EventTypes.RoomName ||
+              event.type == EventTypes.RoomTopic ||
+              event.type == EventTypes.RoomCreate ||
+              event.type == 'm.room.encryption' ||
+              event.type == 'm.key.verification.request' ||
+              event.type.startsWith('m.call.')) &&
+          event.relationshipType != 'm.replace'; // Filter edits
+    }).toList();
+  }
+
   void _scrollToEvent(String eventId) {
     // Find index of event in visible list
-    // Note: We need access to the current list of events.
-    // Ideally we can search the timeline.
     final timeline = _controller.timeline;
     if (timeline == null) return;
 
-    final index = timeline.events.indexWhere((e) => e.eventId == eventId);
+    final visibleEvents = _getVisibleEvents(timeline);
+    final index = visibleEvents.indexWhere((e) => e.eventId == eventId);
+
     if (index != -1) {
       _scrollController.scrollToIndex(
         index,

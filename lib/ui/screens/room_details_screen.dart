@@ -2,8 +2,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Divider;
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
-import 'package:intl/intl.dart';
 import 'package:matrix/matrix.dart';
+import 'package:monochat/core/utils/date_formats.dart';
 import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:monochat/ui/dialogs/user_profile_dialog.dart';
@@ -572,7 +572,7 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
         statusText = l10n.lastSeenHoursAgo(diff.inHours);
         statusColor = CupertinoColors.systemGrey;
       } else {
-        statusText = l10n.lastSeenAt(DateFormat('MMM d').format(lastSeen));
+        statusText = l10n.lastSeenAt(AppDateFormats.monthDay.format(lastSeen));
         statusColor = CupertinoColors.systemGrey;
       }
     } else {
@@ -1238,7 +1238,7 @@ class _ChatSearchScreenState extends State<ChatSearchScreen> {
                       style: TextStyle(color: palette.secondaryText),
                     ),
                     trailing: Text(
-                      DateFormat('MMM d').format(event.originServerTs),
+                      AppDateFormats.monthDay.format(event.originServerTs),
                       style: TextStyle(
                         fontSize: 12,
                         color: palette.secondaryText,
@@ -1417,7 +1417,7 @@ class _MediaGalleryScreenState extends State<MediaGalleryScreen> {
             style: TextStyle(color: palette.text),
           ),
           subtitle: Text(
-            '${sender.calcDisplayname()} • ${DateFormat('MMM d').format(event.originServerTs)}',
+            '${sender.calcDisplayname()} • ${AppDateFormats.monthDay.format(event.originServerTs)}',
             style: TextStyle(fontSize: 12, color: palette.secondaryText),
           ),
           onTap: () {
@@ -1534,7 +1534,7 @@ class _LinksScreenState extends State<LinksScreen> {
                       ),
                     ),
                     subtitle: Text(
-                      '${sender.calcDisplayname()} • ${DateFormat('MMM d').format(event.originServerTs)}',
+                      '${sender.calcDisplayname()} • ${AppDateFormats.monthDay.format(event.originServerTs)}',
                       style: TextStyle(
                         fontSize: 12,
                         color: palette.secondaryText,

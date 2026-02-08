@@ -13,15 +13,25 @@ import 'package:provider/provider.dart';
 class ChatAppBar extends StatelessWidget {
   final Room room;
   final Client client;
+  final Function(String)? onEventTap;
 
-  const ChatAppBar({super.key, required this.room, required this.client});
+  const ChatAppBar({
+    super.key,
+    required this.room,
+    required this.client,
+    this.onEventTap,
+  });
 
-  void _openRoomDetails(BuildContext context) {
-    Navigator.of(context).push(
+  Future<void> _openRoomDetails(BuildContext context) async {
+    final result = await Navigator.of(context).push(
       CupertinoPageRoute(
         builder: (context) => RoomDetailsScreen(room: room, client: client),
       ),
     );
+
+    if (result is String && onEventTap != null) {
+      onEventTap!(result);
+    }
   }
 
   void _showEvaluationSheet(BuildContext context) {
