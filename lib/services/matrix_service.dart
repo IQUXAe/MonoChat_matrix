@@ -16,28 +16,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
 import 'package:sqlite3/open.dart';
 
+import '../utils/library_loader.dart';
 import 'background_sync_service.dart';
-
-DynamicLibrary _loadDynamicLibrary(String name) {
-  if (Platform.isLinux) {
-    try {
-      return DynamicLibrary.open('lib$name.so');
-    } catch (_) {
-      try {
-        return DynamicLibrary.open('/usr/lib/lib$name.so');
-      } catch (_) {
-        return DynamicLibrary.open('/usr/local/lib/lib$name.so');
-      }
-    }
-  }
-  if (Platform.isWindows) {
-    return DynamicLibrary.open('$name.dll');
-  }
-  if (Platform.isMacOS) {
-    return DynamicLibrary.open('lib$name.dylib');
-  }
-  throw UnsupportedError('This platform is not supported.');
-}
 
 // =============================================================================
 // MATRIX SERVICE
@@ -132,15 +112,16 @@ class MatrixService {
     // Initialize FFI for desktop platforms
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       // Force usage of 'sqlcipher' dynamic library instead of 'sqlite3'
+      const libName = 'sqlcipher_flutter_libs_plugin';
       open.overrideFor(OperatingSystem.linux, () {
         // On Linux, user must have libsqlcipher.so installed or bundled
-        return _loadDynamicLibrary('sqlcipher_flutter_libs_plugin');
+        return LibraryLoader.load(libName);
       });
       open.overrideFor(OperatingSystem.windows, () {
-        return _loadDynamicLibrary('sqlcipher_flutter_libs_plugin');
+        return LibraryLoader.load(libName);
       });
       open.overrideFor(OperatingSystem.macOS, () {
-        return _loadDynamicLibrary('sqlcipher_flutter_libs_plugin');
+        return LibraryLoader.load(libName);
       });
 
       ffi.sqfliteFfiInit();
@@ -188,7 +169,7 @@ class MatrixService {
       database: database,
     );
 
-    _log.info('Secure DB initialized with key: ${dbKey.substring(0, 4)}...');
+    _log.info('Secure DB initialized successfully');
 
     _client = Client(
       'MonoChat',
@@ -207,7 +188,7 @@ class MatrixService {
 
     _log.info('Calling client.init()...');
     await _client!.init();
-    _log.info('Client initialized. Logged in: ${_client!.isLogged()}');
+   _log.info('Secure DB initialized successfully');
 
     // Start background sync if logged in and requested
     if (startSync && _client!.isLogged()) {
