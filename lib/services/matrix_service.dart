@@ -151,7 +151,8 @@ class MatrixService {
           version: 1,
           onCreate: (db, version) {},
           onConfigure: (db) async {
-            await db.execute("PRAGMA key = '$dbKey'");
+            // Manually escape the key as PRAGMA doesn't support binding parameters
+            await db.execute("PRAGMA key = '${dbKey.replaceAll("'", "''")}'");
           },
         ),
       );
@@ -188,7 +189,7 @@ class MatrixService {
 
     _log.info('Calling client.init()...');
     await _client!.init();
-   _log.info('Secure DB initialized successfully');
+    _log.info('Secure DB initialized successfully');
 
     // Start background sync if logged in and requested
     if (startSync && _client!.isLogged()) {

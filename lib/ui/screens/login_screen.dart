@@ -64,6 +64,33 @@ class _LoginScreenState extends State<LoginScreen> {
       homeserver = 'https://$homeserver';
     }
 
+    if (homeserver.startsWith('http://')) {
+      final allowed = await showCupertinoDialog<bool>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('Insecure Connection'),
+          content: const Text(
+            'You are connecting to a homeserver using HTTP. '
+            'This is insecure and your credentials could be intercepted.\n\n'
+            'Are you sure you want to continue?',
+          ),
+          actions: [
+            CupertinoDialogAction(
+              child: const Text('Cancel'),
+              onPressed: () => Navigator.pop(context, false),
+            ),
+            CupertinoDialogAction(
+              isDestructiveAction: true,
+              child: const Text('Continue Unsafe'),
+              onPressed: () => Navigator.pop(context, true),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted || allowed != true) return;
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;

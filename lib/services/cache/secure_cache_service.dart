@@ -137,7 +137,9 @@ class SecureCacheService {
             version: 1,
             onCreate: onCreate,
             onConfigure: (db) async {
-              await db.execute("PRAGMA key = '$password'");
+              await db.execute(
+                "PRAGMA key = '${password.replaceAll("'", "''")}'",
+              );
             },
           ),
         );
