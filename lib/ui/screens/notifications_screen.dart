@@ -1,20 +1,16 @@
-/// Notifications settings screen
-///
-/// Provides comprehensive push notification settings including:
-/// - UnifiedPush connection status and management
-/// - Matrix push rules configuration
-/// - Registered devices (pushers) management
-/// - Troubleshooting tools
 library;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart'; // For Colors (if needed fallback)
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:matrix/matrix.dart';
 import 'package:monochat/config/app_config.dart';
 import 'package:monochat/controllers/notification_settings_controller.dart';
 import 'package:monochat/controllers/theme_controller.dart';
 import 'package:monochat/l10n/generated/app_localizations.dart';
 import 'package:monochat/services/matrix_service.dart';
+import 'package:monochat/ui/widgets/settings_tile.dart';
 import 'package:monochat/utils/push_rule_extensions.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -65,7 +61,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 }
 
-/// View when user is not logged in
 class _NotLoggedInView extends StatelessWidget {
   const _NotLoggedInView();
 
@@ -75,25 +70,27 @@ class _NotLoggedInView extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
 
     return CupertinoPageScaffold(
-      backgroundColor: theme.barBackground,
+      backgroundColor: theme.scaffoldBackground,
       navigationBar: CupertinoNavigationBar(
-        middle: Text(l10n.notifications, style: TextStyle(color: theme.text)),
+        middle: Text(l10n.notifications),
         backgroundColor: theme.barBackground,
-        border: null,
-      ),
-      child: SafeArea(
-        child: Center(
-          child: Text(
-            'Please log in to configure notifications',
-            style: TextStyle(color: theme.secondaryText),
+        border: Border(
+          bottom: BorderSide(
+            color: theme.separator.withValues(alpha: 0.3),
+            width: 0.5,
           ),
+        ),
+      ),
+      child: Center(
+        child: Text(
+          'Please log in to configure notifications',
+          style: TextStyle(color: theme.secondaryText),
         ),
       ),
     );
   }
 }
 
-/// Main notifications settings view
 class _NotificationsView extends StatelessWidget {
   final NotificationSettingsController controller;
 
@@ -106,11 +103,16 @@ class _NotificationsView extends StatelessWidget {
     final state = controller.state;
 
     return CupertinoPageScaffold(
-      backgroundColor: theme.barBackground,
+      backgroundColor: theme.scaffoldBackground,
       navigationBar: CupertinoNavigationBar(
-        middle: Text(l10n.notifications, style: TextStyle(color: theme.text)),
+        middle: Text(l10n.notifications),
         backgroundColor: theme.barBackground,
-        border: null,
+        border: Border(
+          bottom: BorderSide(
+            color: theme.separator.withValues(alpha: 0.3),
+            width: 0.5,
+          ),
+        ),
         trailing: state.isLoading
             ? const CupertinoActivityIndicator()
             : CupertinoButton(
@@ -120,35 +122,154 @@ class _NotificationsView extends StatelessWidget {
               ),
       ),
       child: SafeArea(
+        bottom: false,
         child: state.isLoading
             ? const Center(child: CupertinoActivityIndicator())
             : CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 20),
 
-                        // UnifiedPush Status Section
-                        _UnifiedPushSection(controller: controller),
+                        // UNIFIED PUSH STATUS
+                        _buildSectionHeader(context, 'UNIFIED PUSH'),
+                        _buildSettingsGroup(
+                          context,
+                          children: [
+                            // Status tile with health indicator
+                            _PushStatusTile(state: state),
 
+                            SettingsTile(
+                              icon: CupertinoIcons.cloud_upload_fill,
+                              iconColor: CupertinoColors.systemBlue,
+                              title: l10n.pushDistributor,
+                              value: state.upDistributor ?? l10n.noneSelected,
+                              onTap: controller.registerUnifiedPush,
+                            ),
+
+                            // Show endpoint info if registered
+                            if (state.upRegistered && state.upEndpoint != null)
+                              _EndpointInfoTile(state: state),
+
+                            // Last push received
+                            if (state.upRegistered &&
+                                state.lastPushReceived != null)
+                              _LastPushTile(lastPush: state.lastPushReceived!),
+
+                            if (state.upRegistered)
+                              SettingsTile(
+                                icon: CupertinoIcons.delete,
+                                iconColor: CupertinoColors.destructiveRed,
+                                title: l10n.unregisterPush,
+                                titleColor: CupertinoColors.destructiveRed,
+                                onTap: () => _confirmUnregister(context),
+                              ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          child: GestureDetector(
+                            onTap: _openPushTutorial,
+                            child: Text(
+                              l10n.learnMoreAboutUnifiedPush,
+                              style: TextStyle(
+                                color: theme.primary,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
                         const SizedBox(height: 24),
 
-                        // Push Rules Section
-                        _PushRulesSection(controller: controller),
+                        if (state.pushRules != null) ...[
+                          // MASTER SWITCH
+                          _buildSettingsGroup(
+                            context,
+                            children: [
+                              _MasterSwitchTile(controller: controller),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
 
+                          // IMPORTANT RULES
+                          _buildSectionHeader(
+                            context,
+                            l10n.importantNotifications.toUpperCase(),
+                          ),
+                          _buildSettingsGroup(
+                            context,
+                            children: _buildRuleTiles(
+                              context,
+                              _getImportantRules(state.pushRules!),
+                              controller,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+
+                          // ADVANCED RULES
+                          _buildSectionHeader(
+                            context,
+                            l10n.advancedNotifications.toUpperCase(),
+                          ),
+                          _buildSettingsGroup(
+                            context,
+                            children: _buildRuleTiles(
+                              context,
+                              _getAdvancedRules(state.pushRules!),
+                              controller,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+
+                        // REGISTERED DEVICES
+                        _buildSectionHeader(
+                          context,
+                          l10n.registeredDevices.toUpperCase(),
+                        ),
+                        if (state.pushers.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              l10n.noRegisteredDevices,
+                              style: TextStyle(color: theme.secondaryText),
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                        else
+                          _buildSettingsGroup(
+                            context,
+                            children: _buildPusherTiles(context, state.pushers),
+                          ),
                         const SizedBox(height: 24),
 
-                        // Registered Devices Section
-                        _PushersSection(controller: controller),
-
-                        const SizedBox(height: 24),
-
-                        // Troubleshooting Section
-                        _TroubleshootingSection(controller: controller),
-
-                        const SizedBox(height: 40),
+                        // TROUBLESHOOTING
+                        _buildSectionHeader(
+                          context,
+                          l10n.troubleshooting.toUpperCase(),
+                        ),
+                        _buildSettingsGroup(
+                          context,
+                          children: [
+                            SettingsTile(
+                              icon: CupertinoIcons.bell_fill,
+                              iconColor: CupertinoColors.systemIndigo,
+                              title: l10n.sendTestNotification,
+                              onTap: () => _sendTestNotification(context),
+                            ),
+                            SettingsTile(
+                              icon: CupertinoIcons.doc_on_clipboard_fill,
+                              iconColor: CupertinoColors.systemGrey,
+                              title: l10n.copyPushEndpoint,
+                              onTap: () => _copyEndpoint(context),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 50),
                       ],
                     ),
                   ),
@@ -157,114 +278,51 @@ class _NotificationsView extends StatelessWidget {
       ),
     );
   }
-}
 
-// =============================================================================
-// UNIFIED PUSH SECTION
-// =============================================================================
-
-class _UnifiedPushSection extends StatelessWidget {
-  final NotificationSettingsController controller;
-
-  const _UnifiedPushSection({required this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<ThemeController>().palette;
-    final l10n = AppLocalizations.of(context)!;
-    final state = controller.state;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(title: l10n.pushProvider.toUpperCase()),
-        _SettingsCard(
-          children: [
-            // Status row
-            _StatusTile(
-              title: l10n.pushStatus,
-              value: state.upRegistered ? l10n.connected : l10n.notConnected,
-              valueColor: state.upRegistered
-                  ? CupertinoColors.activeGreen
-                  : CupertinoColors.systemOrange,
-              icon: state.upRegistered
-                  ? CupertinoIcons.checkmark_circle_fill
-                  : CupertinoIcons.exclamationmark_circle_fill,
-            ),
-
-            _Divider(),
-
-            // Current distributor
-            _StatusTile(
-              title: l10n.pushDistributor,
-              value: state.upDistributor ?? l10n.noneSelected,
-              valueColor: state.upDistributor != null
-                  ? theme.text
-                  : theme.secondaryText,
-            ),
-
-            if (state.upEndpoint != null) ...[
-              _Divider(),
-              _StatusTile(
-                title: l10n.pushEndpoint,
-                value: _truncateEndpoint(state.upEndpoint!),
-                valueColor: theme.secondaryText,
-              ),
-            ],
-
-            _Divider(),
-
-            // Select distributor button
-            _ActionTile(
-              title: l10n.selectPushDistributor,
-              icon: CupertinoIcons.chevron_right,
-              onTap: controller.registerUnifiedPush,
-            ),
-
-            if (state.upRegistered) ...[
-              _Divider(),
-              _ActionTile(
-                title: l10n.unregisterPush,
-                titleColor: CupertinoColors.destructiveRed,
-                onTap: () => _confirmUnregister(context),
-              ),
-            ],
-          ],
-        ),
-
-        // Info text
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-          child: Text(
-            l10n.pushInfoText,
-            style: TextStyle(color: theme.secondaryText, fontSize: 13),
-            textAlign: TextAlign.center,
+  Widget _buildSectionHeader(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 32, bottom: 8),
+      child: SizedBox(
+        width: double.infinity,
+        child: Text(
+          title,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: context.watch<ThemeController>().palette.secondaryText,
+            letterSpacing: 0.5,
           ),
         ),
-
-        // Learn more link
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: GestureDetector(
-            onTap: _openPushTutorial,
-            child: Text(
-              l10n.learnMoreAboutUnifiedPush,
-              style: TextStyle(
-                color: theme.primary,
-                fontSize: 13,
-                decoration: TextDecoration.underline,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  String _truncateEndpoint(String endpoint) {
-    if (endpoint.length <= 50) return endpoint;
-    return '${endpoint.substring(0, 47)}...';
+  Widget _buildSettingsGroup(
+    BuildContext context, {
+    required List<Widget> children,
+  }) {
+    final palette = context.watch<ThemeController>().palette;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: palette.inputBackground,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            children[i],
+            if (i < children.length - 1)
+              Divider(
+                height: 0.5,
+                thickness: 0.5,
+                indent: 56,
+                color: palette.separator.withValues(alpha: 0.5),
+              ),
+          ],
+        ],
+      ),
+    );
   }
 
   void _confirmUnregister(BuildContext context) {
@@ -298,57 +356,6 @@ class _UnifiedPushSection extends StatelessWidget {
       mode: LaunchMode.externalApplication,
     );
   }
-}
-
-// =============================================================================
-// PUSH RULES SECTION
-// =============================================================================
-
-class _PushRulesSection extends StatelessWidget {
-  final NotificationSettingsController controller;
-
-  const _PushRulesSection({required this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final state = controller.state;
-    final pushRules = state.pushRules;
-
-    if (pushRules == null) {
-      return const SizedBox.shrink();
-    }
-
-    // Group rules by importance for better UX
-    final importantRules = _getImportantRules(pushRules);
-    final advancedRules = _getAdvancedRules(pushRules);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(title: l10n.notificationRules.toUpperCase()),
-
-        // Master switch (mute all)
-        _SettingsCard(children: [_MasterSwitchTile(controller: controller)]),
-
-        const SizedBox(height: 16),
-
-        // Important notification rules
-        _SectionHeader(title: l10n.importantNotifications.toUpperCase()),
-        _SettingsCard(
-          children: _buildRuleTiles(context, importantRules, controller),
-        ),
-
-        const SizedBox(height: 16),
-
-        // Advanced notification rules
-        _SectionHeader(title: l10n.advancedNotifications.toUpperCase()),
-        _SettingsCard(
-          children: _buildRuleTiles(context, advancedRules, controller),
-        ),
-      ],
-    );
-  }
 
   List<({PushRule rule, PushRuleKind kind})> _getImportantRules(
     PushRuleSet rules,
@@ -363,7 +370,6 @@ class _PushRulesSection extends StatelessWidget {
       '.m.rule.invite_for_me',
       '.m.rule.call',
     ];
-
     return _filterRules(rules, important);
   }
 
@@ -378,7 +384,6 @@ class _PushRulesSection extends StatelessWidget {
       '.m.rule.suppress_edits',
       '.m.rule.tombstone',
     ];
-
     return _filterRules(rules, advanced);
   }
 
@@ -387,7 +392,6 @@ class _PushRulesSection extends StatelessWidget {
     List<String> ruleIds,
   ) {
     final result = <({PushRule rule, PushRuleKind kind})>[];
-
     for (final ruleId in ruleIds) {
       // Check override rules
       PushRule? overrideRule;
@@ -400,8 +404,7 @@ class _PushRulesSection extends StatelessWidget {
         result.add((rule: overrideRule, kind: PushRuleKind.override));
         continue;
       }
-
-      // Check underride rules
+      // Check underride
       PushRule? underrideRule;
       try {
         underrideRule = rules.underride?.firstWhere((r) => r.ruleId == ruleId);
@@ -412,8 +415,7 @@ class _PushRulesSection extends StatelessWidget {
         result.add((rule: underrideRule, kind: PushRuleKind.underride));
         continue;
       }
-
-      // Check content rules
+      // Check content
       PushRule? contentRule;
       try {
         contentRule = rules.content?.firstWhere((r) => r.ruleId == ruleId);
@@ -424,7 +426,6 @@ class _PushRulesSection extends StatelessWidget {
         result.add((rule: contentRule, kind: PushRuleKind.content));
       }
     }
-
     return result;
   }
 
@@ -434,9 +435,7 @@ class _PushRulesSection extends StatelessWidget {
     NotificationSettingsController controller,
   ) {
     final tiles = <Widget>[];
-
     for (var i = 0; i < rules.length; i++) {
-      if (i > 0) tiles.add(_Divider());
       tiles.add(
         _PushRuleTile(
           rule: rules[i].rule,
@@ -445,41 +444,272 @@ class _PushRulesSection extends StatelessWidget {
         ),
       );
     }
-
     return tiles;
+  }
+
+  List<Widget> _buildPusherTiles(BuildContext context, List<Pusher> pushers) {
+    final tiles = <Widget>[];
+    for (var i = 0; i < pushers.length; i++) {
+      tiles.add(_PusherTile(pusher: pushers[i], controller: controller));
+    }
+    return tiles;
+  }
+
+  void _copyEndpoint(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final state = controller.state;
+    if (state.upEndpoint != null) {
+      Clipboard.setData(ClipboardData(text: state.upEndpoint!));
+    }
+    showCupertinoDialog(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: const Text('Copied to clipboard'),
+        actions: [
+          CupertinoDialogAction(
+            child: Text(l10n.ok),
+            onPressed: () => Navigator.pop(ctx),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _sendTestNotification(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+
+    // Show local notification
+    final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+    const androidDetails = AndroidNotificationDetails(
+      'test_channel_id',
+      'Test Notifications',
+      channelDescription: 'Channel for test notifications',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      'Test Notification',
+      'This is a test notification from MonoChat',
+      details,
+    );
+
+    if (context.mounted) {
+      showCupertinoDialog(
+        context: context,
+        builder: (ctx) => CupertinoAlertDialog(
+          title: Text(l10n.testNotificationSent),
+          actions: [
+            CupertinoDialogAction(
+              child: Text(l10n.ok),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+}
+
+/// Shows the push connection status with a color-coded health indicator
+class _PushStatusTile extends StatelessWidget {
+  final NotificationSettingsState state;
+
+  const _PushStatusTile({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<ThemeController>().palette;
+    final l10n = AppLocalizations.of(context)!;
+
+    final IconData icon;
+    final Color iconColor;
+    final String statusText;
+
+    if (!state.upRegistered) {
+      icon = CupertinoIcons.exclamationmark_circle_fill;
+      iconColor = CupertinoColors.systemOrange;
+      statusText = l10n.notConnected;
+    } else {
+      final healthy = state.isPushHealthy;
+      if (healthy == null) {
+        // Registered but no health data yet
+        icon = CupertinoIcons.checkmark_circle_fill;
+        iconColor = CupertinoColors.activeGreen;
+        statusText = l10n.connected;
+      } else if (healthy) {
+        icon = CupertinoIcons.checkmark_circle_fill;
+        iconColor = CupertinoColors.activeGreen;
+        statusText = l10n.connected;
+      } else {
+        // Registered but stale
+        icon = CupertinoIcons.exclamationmark_triangle_fill;
+        iconColor = CupertinoColors.systemYellow;
+        statusText = l10n.pushStatusStale;
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: iconColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 18, color: CupertinoColors.white),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.pushStatus,
+                  style: TextStyle(
+                    fontSize: 17,
+                    color: theme.text,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                Text(
+                  statusText,
+                  style: TextStyle(fontSize: 13, color: theme.secondaryText),
+                ),
+              ],
+            ),
+          ),
+          // Pulsating dot for active connection
+          if (state.upRegistered)
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: iconColor,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shows a truncated endpoint with copy-on-tap
+class _EndpointInfoTile extends StatelessWidget {
+  final NotificationSettingsState state;
+
+  const _EndpointInfoTile({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final endpoint = state.upEndpoint ?? '';
+    // Truncate for display: show scheme + host + "..."
+    String displayEndpoint;
+    try {
+      final uri = Uri.parse(endpoint);
+      displayEndpoint = '${uri.scheme}://${uri.host}/...';
+    } catch (_) {
+      displayEndpoint = endpoint.length > 40
+          ? '${endpoint.substring(0, 40)}...'
+          : endpoint;
+    }
+
+    return SettingsTile(
+      icon: CupertinoIcons.link,
+      iconColor: CupertinoColors.systemTeal,
+      title: 'Endpoint',
+      value: displayEndpoint,
+      onTap: () {
+        Clipboard.setData(ClipboardData(text: endpoint));
+        showCupertinoDialog(
+          context: context,
+          builder: (ctx) => CupertinoAlertDialog(
+            title: const Text('Endpoint copied'),
+            actions: [
+              CupertinoDialogAction(
+                child: const Text('OK'),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Shows when the last push was received with relative time
+class _LastPushTile extends StatelessWidget {
+  final DateTime lastPush;
+
+  const _LastPushTile({required this.lastPush});
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsTile(
+      icon: CupertinoIcons.clock_fill,
+      iconColor: CupertinoColors.systemGrey,
+      title: 'Last push received',
+      value: _formatRelativeTime(lastPush),
+      showChevron: false,
+    );
+  }
+
+  String _formatRelativeTime(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${time.day}.${time.month}.${time.year}';
   }
 }
 
 class _MasterSwitchTile extends StatelessWidget {
   final NotificationSettingsController controller;
-
   const _MasterSwitchTile({required this.controller});
-
   @override
   Widget build(BuildContext context) {
     final theme = context.watch<ThemeController>().palette;
     final l10n = AppLocalizations.of(context)!;
     final allMuted = controller.allNotificationsMuted;
 
-    return Padding(
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Icon(
-            allMuted
-                ? CupertinoIcons.bell_slash_fill
-                : CupertinoIcons.bell_fill,
-            color: allMuted ? CupertinoColors.systemOrange : theme.primary,
-            size: 24,
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: allMuted ? CupertinoColors.systemOrange : theme.primary,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              allMuted
+                  ? CupertinoIcons.bell_slash_fill
+                  : CupertinoIcons.bell_fill,
+              size: 18,
+              color: CupertinoColors.white,
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   l10n.muteAllNotifications,
-                  style: TextStyle(fontSize: 17, color: theme.text),
+                  style: TextStyle(
+                    fontSize: 17,
+                    color: theme.text,
+                    fontWeight: FontWeight.w400,
+                  ),
                 ),
                 Text(
                   allMuted
@@ -511,7 +741,6 @@ class _MasterSwitchTile extends StatelessWidget {
     } catch (_) {
       masterRule = null;
     }
-
     if (masterRule != null) {
       controller.togglePushRule(PushRuleKind.override, masterRule);
     }
@@ -536,8 +765,9 @@ class _PushRuleTile extends StatelessWidget {
     final isDisabled =
         controller.allNotificationsMuted && rule.ruleId != '.m.rule.master';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      constraints: const BoxConstraints(minHeight: 48),
       child: Row(
         children: [
           Expanded(
@@ -547,11 +777,13 @@ class _PushRuleTile extends StatelessWidget {
                 Text(
                   rule.getPushRuleName(l10n),
                   style: TextStyle(
-                    fontSize: 16,
-                    color: isDisabled ? theme.secondaryText : theme.text,
+                    fontSize: 17,
+                    color: isDisabled
+                        ? theme.secondaryText
+                        : theme.text, // Dim if disabled
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
-                const SizedBox(height: 2),
                 Text(
                   rule.getPushRuleDescription(l10n),
                   style: TextStyle(fontSize: 13, color: theme.secondaryText),
@@ -572,63 +804,6 @@ class _PushRuleTile extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// PUSHERS (REGISTERED DEVICES) SECTION
-// =============================================================================
-
-class _PushersSection extends StatelessWidget {
-  final NotificationSettingsController controller;
-
-  const _PushersSection({required this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<ThemeController>().palette;
-    final l10n = AppLocalizations.of(context)!;
-    final state = controller.state;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(title: l10n.registeredDevices.toUpperCase()),
-
-        if (state.isLoadingPushers)
-          const Padding(
-            padding: EdgeInsets.all(20),
-            child: Center(child: CupertinoActivityIndicator()),
-          )
-        else if (state.pushers.isEmpty)
-          _SettingsCard(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Center(
-                  child: Text(
-                    l10n.noRegisteredDevices,
-                    style: TextStyle(color: theme.secondaryText),
-                  ),
-                ),
-              ),
-            ],
-          )
-        else
-          _SettingsCard(children: _buildPusherTiles(context, state.pushers)),
-      ],
-    );
-  }
-
-  List<Widget> _buildPusherTiles(BuildContext context, List<Pusher> pushers) {
-    final tiles = <Widget>[];
-
-    for (var i = 0; i < pushers.length; i++) {
-      if (i > 0) tiles.add(_Divider());
-      tiles.add(_PusherTile(pusher: pushers[i], controller: controller));
-    }
-
-    return tiles;
-  }
-}
-
 class _PusherTile extends StatelessWidget {
   final Pusher pusher;
   final NotificationSettingsController controller;
@@ -639,61 +814,17 @@ class _PusherTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.watch<ThemeController>().palette;
 
-    return GestureDetector(
+    return SettingsTile(
+      icon: CupertinoIcons.device_phone_portrait,
+      iconColor: theme.secondaryText,
+      title: pusher.deviceDisplayName,
+      value: null,
       onTap: () => _showPusherOptions(context),
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: theme.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                CupertinoIcons.device_phone_portrait,
-                color: theme.primary,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    pusher.deviceDisplayName,
-                    style: TextStyle(fontSize: 16, color: theme.text),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    pusher.appId,
-                    style: TextStyle(fontSize: 13, color: theme.secondaryText),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const Icon(
-              CupertinoIcons.chevron_right,
-              size: 16,
-              color: CupertinoColors.systemGrey,
-            ),
-          ],
-        ),
-      ),
     );
   }
 
   void _showPusherOptions(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-
     showCupertinoModalPopup(
       context: context,
       builder: (ctx) => CupertinoActionSheet(
@@ -719,7 +850,6 @@ class _PusherTile extends StatelessWidget {
 
   void _confirmDelete(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-
     showCupertinoDialog(
       context: context,
       builder: (ctx) => CupertinoAlertDialog(
@@ -739,247 +869,6 @@ class _PusherTile extends StatelessWidget {
             child: Text(l10n.remove),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// TROUBLESHOOTING SECTION
-// =============================================================================
-
-class _TroubleshootingSection extends StatelessWidget {
-  final NotificationSettingsController controller;
-
-  const _TroubleshootingSection({required this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(title: l10n.troubleshooting.toUpperCase()),
-        _SettingsCard(
-          children: [
-            _ActionTile(
-              title: l10n.sendTestNotification,
-              icon: CupertinoIcons.bell,
-              onTap: () => _sendTestNotification(context),
-            ),
-            _Divider(),
-            _ActionTile(
-              title: l10n.copyPushEndpoint,
-              icon: CupertinoIcons.doc_on_clipboard,
-              onTap: () => _copyEndpoint(context),
-            ),
-            _Divider(),
-            _ActionTile(
-              title: l10n.refreshPushStatus,
-              icon: CupertinoIcons.refresh,
-              onTap: controller.refresh,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  void _sendTestNotification(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-
-    // Show confirmation dialog
-    showCupertinoDialog(
-      context: context,
-      builder: (ctx) => CupertinoAlertDialog(
-        title: Text(l10n.testNotificationSent),
-        actions: [
-          CupertinoDialogAction(
-            child: Text(l10n.ok),
-            onPressed: () => Navigator.pop(ctx),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _copyEndpoint(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    final endpoint = controller.state.upEndpoint;
-
-    if (endpoint != null) {
-      await Clipboard.setData(ClipboardData(text: endpoint));
-      if (context.mounted) {
-        showCupertinoDialog(
-          context: context,
-          builder: (ctx) => CupertinoAlertDialog(
-            title: Text(l10n.endpointCopied),
-            content: Text(endpoint),
-            actions: [
-              CupertinoDialogAction(
-                child: Text(l10n.ok),
-                onPressed: () => Navigator.pop(ctx),
-              ),
-            ],
-          ),
-        );
-      }
-    } else {
-      showCupertinoDialog(
-        context: context,
-        builder: (ctx) => CupertinoAlertDialog(
-          title: Text(l10n.noEndpoint),
-          content: Text(l10n.noEndpointMessage),
-          actions: [
-            CupertinoDialogAction(
-              child: Text(l10n.ok),
-              onPressed: () => Navigator.pop(ctx),
-            ),
-          ],
-        ),
-      );
-    }
-  }
-}
-
-// =============================================================================
-// REUSABLE WIDGETS
-// =============================================================================
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-
-  const _SectionHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<ThemeController>().palette;
-
-    return Padding(
-      padding: const EdgeInsets.only(left: 16, bottom: 8),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-          color: theme.secondaryText,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsCard extends StatelessWidget {
-  final List<Widget> children;
-
-  const _SettingsCard({required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<ThemeController>().palette;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: theme.scaffoldBackground,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(children: children),
-    );
-  }
-}
-
-class _Divider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<ThemeController>().palette;
-
-    return Padding(
-      padding: const EdgeInsets.only(left: 16),
-      child: Container(height: 0.5, color: theme.separator),
-    );
-  }
-}
-
-class _StatusTile extends StatelessWidget {
-  final String title;
-  final String value;
-  final Color? valueColor;
-  final IconData? icon;
-
-  const _StatusTile({
-    required this.title,
-    required this.value,
-    this.valueColor,
-    this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<ThemeController>().palette;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          if (icon != null) ...[
-            Icon(icon, color: valueColor, size: 20),
-            const SizedBox(width: 12),
-          ],
-          Text(title, style: TextStyle(fontSize: 17, color: theme.text)),
-          const Spacer(),
-          Flexible(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 15,
-                color: valueColor ?? theme.secondaryText,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActionTile extends StatelessWidget {
-  final String title;
-  final Color? titleColor;
-  final IconData? icon;
-  final VoidCallback? onTap;
-
-  const _ActionTile({
-    required this.title,
-    this.titleColor,
-    this.icon,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.watch<ThemeController>().palette;
-
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(fontSize: 17, color: titleColor ?? theme.text),
-              ),
-            ),
-            if (icon != null)
-              Icon(icon, size: 16, color: CupertinoColors.systemGrey),
-          ],
-        ),
       ),
     );
   }

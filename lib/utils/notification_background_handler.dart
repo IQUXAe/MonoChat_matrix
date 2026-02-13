@@ -8,6 +8,7 @@ import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:collection/collection.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_vodozemac/flutter_vodozemac.dart' as vod;
 import 'package:matrix/matrix.dart';
@@ -18,6 +19,8 @@ import 'package:monochat/services/matrix_service.dart';
 import 'package:monochat/utils/client_download_content_extension.dart';
 import 'package:monochat/utils/matrix_locals.dart';
 import 'package:monochat/utils/platform_infos.dart';
+import 'package:monochat/core/navigation_service.dart';
+import 'package:monochat/ui/screens/chat_screen.dart';
 import 'package:monochat/utils/push_helper.dart';
 
 bool _vodInitialized = false;
@@ -142,7 +145,20 @@ Future<void> notificationTap(
             .waitForRoomInSync(roomId)
             .timeout(const Duration(seconds: 30));
       }
-    // Navigation would happen in the main app via notification launch details
+
+      // Navigate to room using global key
+      final room = client.getRoomById(roomId);
+      if (room != null) {
+        final context = navigatorKey.currentState?.context;
+        if (context != null && navigatorKey.currentState != null) {
+          // Check if we are already in the room to avoid stacking
+          // This is a simple check, a more robust solution would be named routes or RouteAware
+          // But for now, just pushing is safe enough as user tapped notification.
+          navigatorKey.currentState!.push(
+            CupertinoPageRoute(builder: (_) => ChatScreen(room: room)),
+          );
+        }
+      }
 
     case NotificationResponseType.selectedNotificationAction:
       final actionType = MonoChatNotificationActions.values.singleWhereOrNull(

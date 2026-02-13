@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:monochat/controllers/theme_controller.dart';
@@ -53,31 +55,55 @@ class _ScrollToBottomButtonState extends State<ScrollToBottomButton>
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
+                    // Glassmorphic Button
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: 48, // Slightly larger for better touch area
+                      height: 48,
                       decoration: BoxDecoration(
-                        color: palette
-                            .barBackground, // Glass-like if supported or solid
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: CupertinoColors.black.withValues(
-                              alpha: 0.15,
-                            ),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 15,
+                            offset: const Offset(0, 8),
                           ),
                         ],
-                        border: Border.all(
-                          color: palette.separator.withValues(alpha: 0.5),
-                          width: 0.5,
-                        ),
                       ),
-                      child: Icon(
-                        CupertinoIcons.chevron_down,
-                        color: palette.primary,
-                        size: 24,
+                      child: ClipOval(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: palette.barBackground.withValues(
+                                alpha: 0.6,
+                              ),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: palette.separator.withValues(alpha: 0.2),
+                                width: 1.5,
+                              ),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  palette.scaffoldBackground.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                  palette.scaffoldBackground.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            child: Center(
+                              child: Icon(
+                                CupertinoIcons.chevron_down,
+                                color: palette.primary,
+                                size: 24,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                     if (widget.unreadCount > 0)
@@ -97,6 +123,13 @@ class _ScrollToBottomButtonState extends State<ScrollToBottomButton>
                               color: palette.scaffoldBackground,
                               width: 2,
                             ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.2),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
                           ),
                           alignment: Alignment.center,
                           child: Text(

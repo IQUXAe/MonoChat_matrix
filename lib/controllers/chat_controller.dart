@@ -107,6 +107,9 @@ class ChatController extends ChangeNotifier {
   Timer? _typingTimer;
   StreamSubscription<SyncUpdate>? _syncSubscription;
   Future<void>? _setReadMarkerFuture;
+  final StreamController<String> _errorController =
+      StreamController.broadcast();
+  Stream<String> get onError => _errorController.stream;
 
   // ===========================================================================
   // SELECTION STATE
@@ -162,6 +165,7 @@ class ChatController extends ChangeNotifier {
       notifyListeners();
     } catch (e, s) {
       _log.warning('Failed to load timeline', e, s);
+      _errorController.add('Failed to load chat history: $e');
     }
   }
 
@@ -178,6 +182,7 @@ class ChatController extends ChangeNotifier {
     timeline = null;
     _syncSubscription?.cancel();
     _typingTimer?.cancel();
+    _errorController.close();
     super.dispose();
   }
 
@@ -197,12 +202,20 @@ class ChatController extends ChangeNotifier {
   Future<void> handleDrop(List<XFile> files) async {
     setDragging(false);
 
+    // Batch add files to avoid notification storm
+    var added = false;
     for (final file in files) {
       if (await FileSystemEntity.isDirectory(file.path)) {
         _log.fine('Skipping directory: ${file.path}');
         continue;
       }
-      addAttachment(file);
+      _attachmentDrafts.add(file);
+      added = true;
+    }
+
+    // Single notification after all files are added
+    if (added) {
+      notifyListeners();
     }
   }
 
@@ -355,7 +368,10 @@ class ChatController extends ChangeNotifier {
 
       result.fold(
         (_) => replyEventUsed = null, // Only first file is a reply
-        (e) => _log.severe('Failed to send file message', e),
+        (e) {
+          _log.severe('Failed to send file message', e);
+          _errorController.add('Failed to send file: $e');
+        },
       );
     }
   }
@@ -410,11 +426,13 @@ class ChatController extends ChangeNotifier {
         ),
         (e) {
           _log.severe('Upload failed: ${file.name}', e);
+          _errorController.add('Failed to upload ${file.name}: $e');
           return null;
         },
       );
     } catch (e, s) {
       _log.severe('Upload error: ${file.name}', e, s);
+      _errorController.add('Error uploading ${file.name}: $e');
       return null;
     } finally {
       _removeFromProcessing(file.name);

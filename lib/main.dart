@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:monochat/config/app_config.dart';
+import 'package:monochat/core/navigation_service.dart';
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/room_list_controller.dart';
 import 'package:monochat/controllers/space_controller.dart';
@@ -101,6 +102,7 @@ class MonoChatApp extends StatelessWidget {
       builder: (context, themeController, child) {
         final palette = themeController.palette;
         return CupertinoApp(
+          navigatorKey: navigatorKey,
           title: 'MonoChat',
           theme: CupertinoThemeData(
             brightness: themeController.brightness,

@@ -20,6 +20,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:unifiedpush/unifiedpush.dart';
 import 'package:unifiedpush_ui/unifiedpush_ui.dart';
 
+/// Maximum number of registration retries before giving up
+const _maxRegistrationRetries = 3;
+
+/// Base delay for exponential backoff (doubles each retry)
+const _retryBaseDelay = Duration(seconds: 5);
+
+/// Interval for periodic endpoint health checks
+const _healthCheckInterval = Duration(minutes: 30);
+
+/// HTTP timeout for gateway detection requests
+const _gatewayDetectTimeout = Duration(seconds: 10);
+
+/// Max size of the duplicate push message cache
+const _deduplicationCacheSize = 64;
+
 class BackgroundPush {
   static BackgroundPush? _instance;
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
@@ -39,6 +54,16 @@ class BackgroundPush {
 
   DateTime? lastReceivedPush;
   bool upAction = false;
+
+  /// Registration retry state
+  int _registrationRetryCount = 0;
+  Timer? _retryTimer;
+
+  /// Periodic health check timer
+  Timer? _healthCheckTimer;
+
+  /// LRU cache for deduplicating incoming push messages
+  final _recentPushHashes = <String>[];
 
   void _init() async {
     try {
@@ -98,7 +123,7 @@ class BackgroundPush {
       if (Platform.isAndroid || Platform.isIOS) {
         await UnifiedPush.initialize(
           onNewEndpoint: _newUpEndpoint,
-          onRegistrationFailed: (_, i) => _upUnregistered(i),
+          onRegistrationFailed: _onRegistrationFailed,
           onUnregistered: _upUnregistered,
           onMessage: _onUpMessage,
         );
@@ -124,6 +149,14 @@ class BackgroundPush {
     final instance = BackgroundPush.clientOnly(client);
     instance.onFcmError = onFcmError;
     return instance;
+  }
+
+  /// Clean up timers and resources
+  void dispose() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _healthCheckTimer?.cancel();
+    _healthCheckTimer = null;
   }
 
   Future<void> cancelNotification(String roomId) async {
@@ -289,6 +322,8 @@ class BackgroundPush {
       return;
     }
 
+    Logs().i('[Push] Available distributors: ${distributors.join(", ")}');
+
     await UnifiedPushUi(
       context: WidgetsBinding.instance.rootElement!,
       instances: ['default'],
@@ -298,35 +333,63 @@ class BackgroundPush {
     ).registerAppWithDialog();
   }
 
+  /// Handle registration failure with exponential backoff retry
+  void _onRegistrationFailed(FailedReason reason, String i) {
+    Logs().w(
+      '[Push] Registration failed (attempt ${_registrationRetryCount + 1}/$_maxRegistrationRetries): $reason',
+    );
+    upAction = true;
+
+    if (_registrationRetryCount < _maxRegistrationRetries) {
+      final delay = _retryBaseDelay * (1 << _registrationRetryCount);
+      _registrationRetryCount++;
+      Logs().i('[Push] Scheduling retry in ${delay.inSeconds}s...');
+
+      _retryTimer?.cancel();
+      _retryTimer = Timer(delay, () async {
+        Logs().i(
+          '[Push] Retrying registration (attempt $_registrationRetryCount/$_maxRegistrationRetries)...',
+        );
+        try {
+          await UnifiedPush.register(instance: 'default');
+        } catch (e) {
+          Logs().e('[Push] Retry registration call failed', e);
+          // Will trigger _onRegistrationFailed again if it fails
+        }
+      });
+    } else {
+      Logs().e(
+        '[Push] Registration failed after $_maxRegistrationRetries attempts. Giving up.',
+      );
+      _registrationRetryCount = 0;
+
+      loadLocale();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        onFcmError?.call(
+          'Push registration failed after multiple attempts. Please try again from Settings.',
+          link: Uri.parse(AppConfig.enablePushTutorial),
+        );
+      });
+    }
+  }
+
   Future<void> _newUpEndpoint(PushEndpoint newPushEndpoint, String i) async {
     final newEndpoint = newPushEndpoint.url;
     upAction = true;
+    // Reset retry count on successful endpoint receipt
+    _registrationRetryCount = 0;
+    _retryTimer?.cancel();
+
     if (newEndpoint.isEmpty) {
+      Logs().w('[Push] Received empty endpoint, treating as unregistered');
       await _upUnregistered(i);
       return;
     }
-    var endpoint =
-        'https://matrix.gateway.unifiedpush.org/_matrix/push/v1/notify';
-    try {
-      final url = Uri.parse(newEndpoint)
-          .replace(path: '/_matrix/push/v1/notify', query: '')
-          .toString()
-          .split('?')
-          .first;
-      final res = json.decode(
-        utf8.decode((await http.get(Uri.parse(url))).bodyBytes),
-      );
-      if (res['gateway'] == 'matrix' ||
-          (res['unifiedpush'] is Map &&
-              res['unifiedpush']['gateway'] == 'matrix')) {
-        endpoint = url;
-      }
-    } catch (e) {
-      Logs().i(
-        '[Push] No self-hosted unified push gateway present: $newEndpoint',
-      );
-    }
-    Logs().i('[Push] UnifiedPush using endpoint $endpoint');
+
+    Logs().i('[Push] Received new endpoint: ${_redactEndpoint(newEndpoint)}');
+
+    final endpoint = await _detectGateway(newEndpoint);
+    Logs().i('[Push] Using gateway: $endpoint');
 
     await setupPusher(
       gatewayUrl: endpoint,
@@ -337,12 +400,149 @@ class BackgroundPush {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(SettingKeys.unifiedPushEndpoint, newEndpoint);
     await prefs.setBool(SettingKeys.unifiedPushRegistered, true);
+    await prefs.setString(
+      SettingKeys.unifiedPushLastSuccess,
+      DateTime.now().toIso8601String(),
+    );
     upRegistered = true;
+
+    // Start periodic health checks
+    _startHealthChecks();
+  }
+
+  /// Auto-detect the push gateway URL with multiple fallback strategies
+  Future<String> _detectGateway(String endpoint) async {
+    const fallbackGateway =
+        'https://matrix.gateway.unifiedpush.org/_matrix/push/v1/notify';
+
+    // Strategy 1: Check if the endpoint provider supports matrix gateway natively
+    try {
+      final url = Uri.parse(endpoint)
+          .replace(path: '/_matrix/push/v1/notify', query: '')
+          .toString()
+          .split('?')
+          .first;
+
+      final res = json.decode(
+        utf8.decode(
+          (await http.get(Uri.parse(url)).timeout(_gatewayDetectTimeout))
+              .bodyBytes,
+        ),
+      );
+
+      if (res is Map) {
+        // Check standard response format
+        if (res['gateway'] == 'matrix') {
+          Logs().i('[Push] Self-hosted gateway detected at $url');
+          return url;
+        }
+        // Check extended response format (UnifiedPush spec v2)
+        if (res['unifiedpush'] is Map &&
+            res['unifiedpush']['gateway'] == 'matrix') {
+          Logs().i('[Push] Self-hosted gateway (v2 format) detected at $url');
+          return url;
+        }
+      }
+    } catch (e) {
+      Logs().i(
+        '[Push] Self-hosted gateway probe failed for endpoint: ${_redactEndpoint(endpoint)} — $e',
+      );
+    }
+
+    // Strategy 2: Check the endpoint root for gateway info
+    try {
+      final rootUri = Uri.parse(endpoint).replace(path: '/', query: '');
+      final rootUrl = rootUri.toString().split('?').first;
+      final rootRes = json.decode(
+        utf8.decode(
+          (await http
+                  .get(Uri.parse('${rootUrl}_matrix/push/v1/notify'))
+                  .timeout(_gatewayDetectTimeout))
+              .bodyBytes,
+        ),
+      );
+      if (rootRes is Map && rootRes['gateway'] == 'matrix') {
+        final gatewayUrl = '${rootUrl}_matrix/push/v1/notify';
+        Logs().i('[Push] Root gateway detected at $gatewayUrl');
+        return gatewayUrl;
+      }
+    } catch (e) {
+      Logs().v('[Push] Root gateway probe failed — $e');
+    }
+
+    Logs().i('[Push] Using public fallback gateway: $fallbackGateway');
+    return fallbackGateway;
+  }
+
+  /// Redact endpoint URL for logging (keep host, hide path params)
+  String _redactEndpoint(String endpoint) {
+    try {
+      final uri = Uri.parse(endpoint);
+      return '${uri.scheme}://${uri.host}/...';
+    } catch (_) {
+      return '<invalid>';
+    }
+  }
+
+  /// Start periodic health check timer
+  void _startHealthChecks() {
+    _healthCheckTimer?.cancel();
+    _healthCheckTimer = Timer.periodic(_healthCheckInterval, (_) async {
+      await _performHealthCheck();
+    });
+  }
+
+  /// Verify endpoint is still valid and re-register if needed
+  Future<void> _performHealthCheck() async {
+    if (!upRegistered) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final endpoint = prefs.getString(SettingKeys.unifiedPushEndpoint);
+
+    if (endpoint == null || endpoint.isEmpty) {
+      Logs().w('[Push] Health check: no saved endpoint');
+      return;
+    }
+
+    try {
+      // Check if the distributor is still available
+      final distributor = await UnifiedPush.getDistributor();
+      if (distributor == null || distributor.isEmpty) {
+        Logs().e('[Push] Health check: distributor disappeared, cleaning up');
+        upRegistered = false;
+        await prefs.setBool(SettingKeys.unifiedPushRegistered, false);
+        return;
+      }
+
+      // Verify the pusher is still registered on the server
+      final pushers = await client.getPushers().catchError((e) {
+        Logs().w('[Push] Health check: unable to fetch pushers', e);
+        return <Pusher>[];
+      });
+
+      final hasPusher = pushers?.any((p) => p.pushkey == endpoint) ?? false;
+      if (!hasPusher) {
+        Logs().w(
+          '[Push] Health check: pusher not found on server, re-registering',
+        );
+        // Re-register to restore the pusher
+        await UnifiedPush.register(instance: 'default');
+      } else {
+        Logs().v('[Push] Health check: endpoint healthy');
+        await prefs.setString(
+          SettingKeys.unifiedPushLastSuccess,
+          DateTime.now().toIso8601String(),
+        );
+      }
+    } catch (e) {
+      Logs().w('[Push] Health check failed: $e');
+    }
   }
 
   Future<void> _upUnregistered(String i) async {
     upAction = true;
     upRegistered = false;
+    _healthCheckTimer?.cancel();
     Logs().i('[Push] Removing UnifiedPush endpoint...');
 
     final prefs = await SharedPreferences.getInstance();
@@ -350,6 +550,7 @@ class BackgroundPush {
 
     await prefs.remove(SettingKeys.unifiedPushEndpoint);
     await prefs.setBool(SettingKeys.unifiedPushRegistered, false);
+    await prefs.remove(SettingKeys.unifiedPushLastSuccess);
 
     if (oldEndpoint != null && oldEndpoint.isNotEmpty) {
       // remove the old pusher
@@ -357,26 +558,52 @@ class BackgroundPush {
     }
   }
 
+  /// Check if a push message is a duplicate (deduplication via content hash)
+  bool _isDuplicatePush(List<int> content) {
+    final hash = content.fold<int>(0, (prev, b) => prev * 31 + b).toString();
+
+    if (_recentPushHashes.contains(hash)) {
+      return true;
+    }
+
+    _recentPushHashes.add(hash);
+    if (_recentPushHashes.length > _deduplicationCacheSize) {
+      _recentPushHashes.removeAt(0);
+    }
+    return false;
+  }
+
   Future<void> _onUpMessage(PushMessage pushMessage, String i) async {
-    Logs().i('[MonoChat Push] _onUpMessage called');
-    Logs().i(
-      '[MonoChat Push] Message content length: ${pushMessage.content.length}',
-    );
+    final stopwatch = Stopwatch()..start();
+    Logs().i('[Push] _onUpMessage called');
+    Logs().i('[Push] Message content length: ${pushMessage.content.length}');
 
     try {
       final message = pushMessage.content;
       upAction = true;
 
-      final decodedJson = json.decode(utf8.decode(message));
-      Logs().i('[MonoChat Push] Decoded JSON keys: ${decodedJson.keys}');
+      // Deduplicate: skip if we've seen this exact message recently
+      if (_isDuplicatePush(message)) {
+        Logs().i('[Push] Duplicate push message detected, skipping');
+        return;
+      }
+
+      Map<String, dynamic> decodedJson;
+      try {
+        decodedJson = json.decode(utf8.decode(message)) as Map<String, dynamic>;
+      } catch (e) {
+        Logs().e('[Push] Failed to decode push payload: $e');
+        return;
+      }
+
+      Logs().v('[Push] Decoded JSON keys: ${decodedJson.keys}');
 
       if (decodedJson['notification'] == null) {
-        Logs().e('[MonoChat Push] No notification key in payload!');
+        Logs().w('[Push] No notification key in payload, ignoring');
         return;
       }
 
       final data = Map<String, dynamic>.from(decodedJson['notification']);
-      Logs().i('[MonoChat Push] Notification data: $data');
 
       // UP may strip the devices list
       data['devices'] ??= [];
@@ -388,17 +615,13 @@ class BackgroundPush {
             AppLifecycleState.resumed) {
           final matrixService = MatrixService();
           activeRoomId = matrixService.activeRoomId;
-          Logs().i(
-            '[MonoChat Push] App is resumed, activeRoomId: $activeRoomId',
-          );
+          Logs().v('[Push] App is resumed, activeRoomId: $activeRoomId');
         } else {
-          Logs().i('[MonoChat Push] App is in background, activeRoomId: null');
+          Logs().v('[Push] App is in background');
         }
       } catch (e) {
-        Logs().w('[MonoChat Push] Error getting activeRoomId: $e');
+        Logs().w('[Push] Error getting activeRoomId: $e');
       }
-
-      Logs().i('[MonoChat Push] Calling pushHelper...');
 
       await pushHelper(
         PushNotification.fromJson(data),
@@ -409,10 +632,26 @@ class BackgroundPush {
         useNotificationActions: true,
       );
 
-      Logs().i('[MonoChat Push] pushHelper completed');
+      // Track last successful push receipt
+      lastReceivedPush = DateTime.now();
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+          SettingKeys.unifiedPushLastSuccess,
+          lastReceivedPush!.toIso8601String(),
+        );
+      } catch (_) {}
+
+      stopwatch.stop();
+      Logs().i('[Push] Push processed in ${stopwatch.elapsedMilliseconds}ms');
     } catch (e, s) {
-      Logs().e('[MonoChat Push] Error in _onUpMessage: $e', e, s);
-      rethrow;
+      stopwatch.stop();
+      Logs().e(
+        '[Push] Error in _onUpMessage after ${stopwatch.elapsedMilliseconds}ms: $e',
+        e,
+        s,
+      );
+      // Don't rethrow — crashing the handler prevents future messages
     }
   }
 }

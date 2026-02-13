@@ -37,6 +37,9 @@ class SpaceController extends ChangeNotifier {
   List<SpaceRoomsChunk$2> _spaceChildren = [];
   List<SpaceRoomsChunk$2> get spaceChildren => _spaceChildren;
 
+  /// Cached list of spaces (updated on sync, not computed on every access)
+  List<Room> _cachedSpaces = [];
+
   /// Loading state
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -57,8 +60,8 @@ class SpaceController extends ChangeNotifier {
   // GETTERS
   // ===========================================================================
 
-  /// All spaces the user is a member of
-  List<Room> get spaces => _client.rooms.where((r) => r.isSpace).toList();
+  /// All spaces the user is a member of (cached, updated on sync)
+  List<Room> get spaces => _cachedSpaces;
 
   /// Current active space room
   Room? get activeSpace =>
@@ -85,10 +88,18 @@ class SpaceController extends ChangeNotifier {
 
   void _setupSyncListener() {
     _syncSubscription?.cancel();
+    // Initial population of cached spaces
+    _updateCachedSpaces();
     _syncSubscription = _client.onSync.stream.listen((_) {
-      // Notify listeners when rooms change to update space list
+      // Update cached spaces list when rooms change
+      _updateCachedSpaces();
       notifyListeners();
     });
+  }
+
+  /// Updates the cached spaces list (called on sync)
+  void _updateCachedSpaces() {
+    _cachedSpaces = _client.rooms.where((r) => r.isSpace).toList();
   }
 
   @override
@@ -560,14 +571,13 @@ class SpaceController extends ChangeNotifier {
     final space = _client.getRoomById(spaceId);
     if (space == null) return 0;
 
-    final childIds = space.spaceChildren
-        .map((c) => c.roomId)
-        .whereType<String>()
-        .toSet();
-
     var count = 0;
-    for (final room in _client.rooms) {
-      if (childIds.contains(room.id) && room.notificationCount > 0) {
+    // Iterate over children (O(Children)) instead of all rooms (O(AllRooms))
+    for (final child in space.spaceChildren) {
+      final roomId = child.roomId;
+      if (roomId == null) continue;
+      final room = _client.getRoomById(roomId);
+      if (room != null && room.notificationCount > 0) {
         count += room.notificationCount;
       }
     }

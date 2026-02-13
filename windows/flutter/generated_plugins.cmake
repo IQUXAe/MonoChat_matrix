@@ -14,7 +14,6 @@ list(APPEND FLUTTER_PLUGIN_LIST
   record_windows
   screen_retriever_windows
   share_plus
-  sodium_libs
   sqlcipher_flutter_libs
   url_launcher_windows
   webcrypto

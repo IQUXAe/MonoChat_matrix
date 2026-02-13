@@ -258,6 +258,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get notConnected => 'Не подключено';
 
   @override
+  String get pushStatusStale => 'Соединение может быть неактуально';
+
+  @override
   String get pushDistributor => 'Дистрибьютор';
 
   @override

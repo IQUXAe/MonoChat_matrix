@@ -32,6 +32,7 @@ class _RoomMembersScreenState extends State<RoomMembersScreen> {
   final _searchController = TextEditingController();
 
   StreamSubscription? _syncSubscription;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -51,25 +52,31 @@ class _RoomMembersScreenState extends State<RoomMembersScreen> {
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _syncSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
   void _onSearchChanged() {
-    final query = _searchController.text.trim().toLowerCase();
-    if (_members == null) return;
+    // Debounce search to avoid filtering on every keystroke
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      final query = _searchController.text.trim().toLowerCase();
+      if (_members == null) return;
 
-    setState(() {
-      if (query.isEmpty) {
-        _filteredMembers = List.from(_members!);
-      } else {
-        _filteredMembers = _members!.where((user) {
-          final name = user.displayName?.toLowerCase() ?? '';
-          final id = user.id.toLowerCase();
-          return name.contains(query) || id.contains(query);
-        }).toList();
-      }
+      setState(() {
+        if (query.isEmpty) {
+          _filteredMembers = List.from(_members!);
+        } else {
+          _filteredMembers = _members!.where((user) {
+            final name = user.displayName?.toLowerCase() ?? '';
+            final id = user.id.toLowerCase();
+            return name.contains(query) || id.contains(query);
+          }).toList();
+        }
+      });
     });
   }
 

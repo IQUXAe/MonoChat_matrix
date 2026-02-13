@@ -5,6 +5,8 @@ abstract class SettingKeys {
   // Push notification settings
   static const String unifiedPushEndpoint = 'monochat.unifiedpush.endpoint';
   static const String unifiedPushRegistered = 'monochat.unifiedpush.registered';
+  static const String unifiedPushLastSuccess =
+      'monochat.unifiedpush.last_success';
   static const String showNoGoogle = 'monochat.show_no_google';
 
   // Theme and appearance

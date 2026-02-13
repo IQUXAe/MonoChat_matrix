@@ -1,7 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter/cupertino.dart';
 import 'package:matrix/matrix.dart';
+import 'package:monochat/services/presence_manager.dart';
 
 class PresenceBuilder extends StatefulWidget {
   final Widget Function(BuildContext context, CachedPresence? presence) builder;
@@ -21,9 +20,8 @@ class PresenceBuilder extends StatefulWidget {
 
 class _PresenceBuilderState extends State<PresenceBuilder> {
   CachedPresence? _presence;
-  StreamSubscription<CachedPresence>? _sub;
 
-  void _updatePresence(CachedPresence? presence) {
+  void _onPresenceUpdate(CachedPresence presence) {
     if (!mounted) return;
     setState(() {
       _presence = presence;
@@ -34,17 +32,36 @@ class _PresenceBuilderState extends State<PresenceBuilder> {
   void initState() {
     super.initState();
     // Fetch initial
-    widget.client.fetchCurrentPresence(widget.userId).then(_updatePresence);
+    widget.client.fetchCurrentPresence(widget.userId).then((p) {
+      if (mounted) setState(() => _presence = p);
+    });
 
-    // Listen for updates
-    _sub = widget.client.onPresenceChanged.stream
-        .where((presence) => presence.userid == widget.userId)
-        .listen(_updatePresence);
+    // Listen for updates via centralized manager
+    PresenceManager().listen(widget.client, widget.userId, _onPresenceUpdate);
+  }
+
+  @override
+  void didUpdateWidget(PresenceBuilder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId ||
+        oldWidget.client != widget.client) {
+      PresenceManager().unlisten(
+        oldWidget.client,
+        oldWidget.userId,
+        _onPresenceUpdate,
+      );
+      PresenceManager().listen(widget.client, widget.userId, _onPresenceUpdate);
+
+      // Re-fetch initial
+      widget.client.fetchCurrentPresence(widget.userId).then((p) {
+        if (mounted) setState(() => _presence = p);
+      });
+    }
   }
 
   @override
   void dispose() {
-    _sub?.cancel();
+    PresenceManager().unlisten(widget.client, widget.userId, _onPresenceUpdate);
     super.dispose();
   }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -49,6 +50,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _storage = const FlutterSecureStorage();
 
   late final ChatController _controller;
+  StreamSubscription<String>? _errorSubscription;
   bool _isExiting = false;
   bool _showScrollButton = false;
   int _pinnedMessageCount = 0;
@@ -66,6 +68,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       room: widget.room,
       chatRepository: chatRepository,
     );
+
+    _errorSubscription = _controller.onError.listen((error) {
+      if (mounted) {
+        showCupertinoDialog(
+          context: context,
+          builder: (c) => CupertinoAlertDialog(
+            title: const Text('Error'),
+            content: Text(error),
+            actions: [
+              CupertinoDialogAction(
+                child: const Text('OK'),
+                onPressed: () => Navigator.pop(c),
+              ),
+            ],
+          ),
+        );
+      }
+    });
 
     // Set active room ID for push notification filtering
     matrixService.setActiveRoom(widget.room.id);
@@ -150,6 +170,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _textController.dispose();
     _scrollController.dispose();
+    _errorSubscription?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -316,7 +337,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             onMessageTap: _scrollToEvent,
                             onCountChanged: (count) {
                               if (_pinnedMessageCount != count) {
-                                setState(() => _pinnedMessageCount = count);
+                                // Defer setState to avoid calling during build
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
+                                  if (mounted) {
+                                    setState(() => _pinnedMessageCount = count);
+                                  }
+                                });
                               }
                             },
                           ),

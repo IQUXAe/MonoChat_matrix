@@ -61,7 +61,7 @@ dependencies:
   flutter_svg: ^2.0.7
   flutter_web_auth_2: ^4.0.1
   url_launcher: ^6.3.1
-  sodium_libs: ^3.0.0
+  cryptography: ^2.7.0
   flutter_dynamic_icon_plus: ^1.4.0
   flutter_local_notifications: ^19.5.0
   flutter_background_service: ^5.1.0

@@ -1,4 +1,7 @@
+import 'dart:ui';
+
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:matrix/matrix.dart';
 import 'package:monochat/controllers/auth_controller.dart';
 import 'package:monochat/controllers/theme_controller.dart';
@@ -7,17 +10,6 @@ import 'package:monochat/ui/widgets/avatar_viewer.dart';
 import 'package:monochat/ui/widgets/matrix_avatar.dart';
 import 'package:provider/provider.dart';
 
-// =============================================================================
-// PROFILE SCREEN
-// =============================================================================
-
-/// User profile screen with account information and actions.
-///
-/// Displays:
-/// - User avatar and display name
-/// - Matrix ID
-/// - Account statistics
-/// - Account actions (edit profile, logout)
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -26,9 +18,26 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  late Future<Profile> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshProfile();
+  }
+
+  void _refreshProfile() {
+    final client = context.read<AuthController>().client;
+    if (client != null) {
+      _profileFuture = client.fetchOwnProfile();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authController = context.watch<AuthController>();
+    final themeController = context.watch<ThemeController>();
+    final palette = themeController.palette;
     final client = authController.client;
 
     if (client == null) {
@@ -38,63 +47,192 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     return CupertinoPageScaffold(
-      backgroundColor: context.watch<ThemeController>().palette.barBackground,
-      child: CustomScrollView(
-        slivers: [
-          // Navigation bar
-          CupertinoSliverNavigationBar(
-            largeTitle: Text(_getLocalizedTitle(context)),
-            backgroundColor: context
-                .watch<ThemeController>()
-                .palette
-                .barBackground,
-            border: null,
-          ),
+      backgroundColor: palette.scaffoldBackground,
+      child: FutureBuilder<Profile>(
+        future: _profileFuture,
+        builder: (context, snapshot) {
+          final profile = snapshot.data;
+          final displayName =
+              profile?.displayName ?? client.userID?.localpart ?? 'User';
+          final avatarUrl = profile?.avatarUrl;
 
-          // Profile content
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                children: [
-                  const SizedBox(height: 16),
-
-                  // Profile Card
-                  _ProfileCard(
-                    client: client,
-                    onProfileUpdated: () => setState(() {}),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Stats Section
-                  _buildStatsSection(context, client),
-
-                  const SizedBox(height: 24),
-
-                  // Actions Section
-                  _buildActionsSection(context, client),
-
-                  const SizedBox(height: 24),
-
-                  // Danger Zone
-                  _buildDangerZone(context, authController),
-
-                  const SizedBox(height: 48),
-                ],
-              ),
+          return CustomScrollView(
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
             ),
-          ),
-        ],
+            slivers: [
+              // Standard Navigation Bar for reliable navigation
+              CupertinoSliverNavigationBar(
+                largeTitle: Text(
+                  AppLocalizations.of(context)?.profile ?? 'Profile',
+                ),
+                backgroundColor: palette.barBackground.withValues(alpha: 0.8),
+                border: Border(
+                  bottom: BorderSide(
+                    color: palette.separator.withValues(alpha: 0.5),
+                    width: 0.5,
+                  ),
+                ),
+                trailing: CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  child: const Text('Edit'),
+                  onPressed: () =>
+                      _showEditProfileSheet(context, client, displayName),
+                ),
+              ),
+
+              SliverToBoxAdapter(
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 20),
+                      // Avatar Section
+                      Center(
+                        child: GestureDetector(
+                          onTap: () {
+                            if (avatarUrl != null) {
+                              showCupertinoModalPopup(
+                                context: context,
+                                builder: (context) => AvatarViewer(
+                                  uri: avatarUrl,
+                                  client: client,
+                                  displayName: displayName,
+                                ),
+                              );
+                            }
+                          },
+                          child: Stack(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: palette.barBackground,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 5),
+                                    ),
+                                  ],
+                                ),
+                                child: MatrixAvatar(
+                                  avatarUrl: avatarUrl,
+                                  name: displayName,
+                                  client: client,
+                                  size: 100, // Standard size
+                                ),
+                              ),
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: CupertinoColors.activeBlue,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: palette.scaffoldBackground,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    CupertinoIcons.qrcode,
+                                    size: 16,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Name & ID
+                      Text(
+                        displayName,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: palette.text,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        client.userID ?? '',
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: palette.secondaryText,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // Stats
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _buildStatsSection(context, client, palette),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // Actions
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          children: [
+                            _buildActionSection(
+                              palette,
+                              title: 'ACCOUNT',
+                              children: [
+                                _ProfileActionTile(
+                                  icon: CupertinoIcons.qrcode,
+                                  iconColor: CupertinoColors.systemPurple,
+                                  title: 'QR Code',
+                                  onTap: () => _showQRCode(context, client),
+                                  palette: palette,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+                            _buildActionSection(
+                              palette,
+                              title: 'SESSION',
+                              children: [
+                                _ProfileActionTile(
+                                  icon: CupertinoIcons.square_arrow_right,
+                                  iconColor: CupertinoColors.systemRed,
+                                  title: 'Sign Out',
+                                  isDestructive: true,
+                                  onTap: () => _showLogoutConfirmation(
+                                    context,
+                                    authController,
+                                  ),
+                                  palette: palette,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 50),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  String _getLocalizedTitle(BuildContext context) {
-    return AppLocalizations.of(context)?.profile ?? 'Profile';
-  }
-
-  Widget _buildStatsSection(BuildContext context, Client client) {
+  Widget _buildStatsSection(
+    BuildContext context,
+    Client client,
+    dynamic palette,
+  ) {
     final rooms = client.rooms;
     final directChats = rooms.where((r) => r.isDirectChat).length;
     final groupChats = rooms.length - directChats;
@@ -102,7 +240,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
-        color: context.watch<ThemeController>().palette.scaffoldBackground,
+        color: palette.inputBackground,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -110,68 +248,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           _StatItem(
             value: rooms.length.toString(),
-            label: 'Total Chats',
-            icon: CupertinoIcons.chat_bubble_2_fill,
-            color: CupertinoColors.activeBlue,
+            label: 'Total',
+            palette: palette,
           ),
-          _StatDivider(),
+          Container(
+            width: 1,
+            height: 30,
+            color: palette.separator.withValues(alpha: 0.5),
+          ),
           _StatItem(
             value: directChats.toString(),
             label: 'Direct',
-            icon: CupertinoIcons.person_fill,
-            color: CupertinoColors.systemGreen,
+            palette: palette,
           ),
-          _StatDivider(),
+          Container(
+            width: 1,
+            height: 30,
+            color: palette.separator.withValues(alpha: 0.5),
+          ),
           _StatItem(
             value: groupChats.toString(),
             label: 'Groups',
-            icon: CupertinoIcons.person_3_fill,
-            color: CupertinoColors.systemOrange,
+            palette: palette,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildActionsSection(BuildContext context, Client client) {
-    return Container(
-      decoration: BoxDecoration(
-        color: context.watch<ThemeController>().palette.scaffoldBackground,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          _ProfileActionTile(
-            icon: CupertinoIcons.qrcode,
-            iconColor: CupertinoColors.systemPurple,
-            title: 'QR Code',
-            subtitle: 'Share your profile',
-            onTap: () => _showQRCode(context, client),
+  Widget _buildActionSection(
+    dynamic palette, {
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 16, bottom: 8),
+          child: Text(
+            title,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: palette.secondaryText,
+            ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDangerZone(BuildContext context, AuthController controller) {
-    return Container(
-      decoration: BoxDecoration(
-        color: context.watch<ThemeController>().palette.scaffoldBackground,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: _ProfileActionTile(
-        icon: CupertinoIcons.square_arrow_right,
-        iconColor: CupertinoColors.systemRed,
-        title: 'Sign Out',
-        subtitle: 'Log out of your account',
-        isDestructive: true,
-        onTap: () => _showLogoutConfirmation(context, controller),
-      ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: palette.inputBackground,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              for (var i = 0; i < children.length; i++) ...[
+                children[i],
+                if (i < children.length - 1)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 56),
+                    child: Divider(
+                      height: 0.5,
+                      thickness: 0.5,
+                      color: palette.separator.withValues(alpha: 0.5),
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   void _showQRCode(BuildContext context, Client client) {
-    // ... (existing implementation)
     showCupertinoDialog<void>(
       context: context,
       builder: (context) => CupertinoAlertDialog(
@@ -181,8 +331,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             children: [
               Container(
-                width: 180,
-                height: 180,
+                width: 200,
+                height: 200,
                 decoration: BoxDecoration(
                   color: CupertinoColors.white,
                   borderRadius: BorderRadius.circular(12),
@@ -190,13 +340,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: const Center(
                   child: Icon(
                     CupertinoIcons.qrcode,
-                    size: 100,
+                    size: 150,
                     color: CupertinoColors.black,
                   ),
                 ),
               ),
               const SizedBox(height: 12),
-              Text(client.userID ?? '', style: const TextStyle(fontSize: 13)),
+              Text(
+                client.userID ?? '',
+                style: const TextStyle(fontSize: 13, fontFamily: 'Monospace'),
+              ),
             ],
           ),
         ),
@@ -239,290 +392,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
-}
 
-// =============================================================================
-// PROFILE CARD
-// =============================================================================
-
-// =============================================================================
-// PROFILE CARD
-// =============================================================================
-
-/// Profile card with avatar and user info.
-class _ProfileCard extends StatefulWidget {
-  final Client client;
-  final VoidCallback? onProfileUpdated;
-
-  const _ProfileCard({required this.client, this.onProfileUpdated});
-
-  @override
-  State<_ProfileCard> createState() => _ProfileCardState();
-}
-
-class _ProfileCardState extends State<_ProfileCard> {
-  // We can use a key or purely rely on FutureBuilder re-running if setState called
-  // But FutureBuilder re-runs every build if future is not stored.
-  // We should store the future to avoid unnecessary fetches,
-  // but here we WANT to re-fetch when requested.
-  // Simplest: Just use FutureBuilder normally. Parent `setState` triggers rebuild here.
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: context.watch<ThemeController>().palette.scaffoldBackground,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: CupertinoColors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Builder(
-        builder: (context) {
-          if (widget.client.userID == null) {
-            return const SizedBox(); // Should not happen
-          }
-
-          return FutureBuilder<Profile>(
-            // We force a new future on every build by calling method directly
-            // This is usually bad for perf, but here acceptable as ProfileScreen
-            // is not frequently rebuilt (only on interactions).
-            // Actually, scrolling might trigger it? No, it's SliverToBoxAdapter.
-            // If it becomes an issue, we will wrap in Future.
-            future: widget.client.fetchOwnProfile(),
-            builder: (context, snapshot) {
-              final profile = snapshot.data;
-              final displayName =
-                  profile?.displayName ??
-                  widget.client.userID?.localpart ??
-                  'User';
-
-              return Column(
-                children: [
-                  // Avatar with edit button
-                  Stack(
-                    children: [
-                      GestureDetector(
-                        onTap: () {
-                          if (profile?.avatarUrl != null) {
-                            showCupertinoModalPopup(
-                              context: context,
-                              builder: (context) => AvatarViewer(
-                                uri: profile!.avatarUrl!,
-                                client: widget.client,
-                                displayName: displayName,
-                              ),
-                            );
-                          }
-                        },
-                        child: MatrixAvatar(
-                          avatarUrl: profile?.avatarUrl,
-                          name: displayName,
-                          client: widget.client,
-                          size: 100,
-                        ),
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: GestureDetector(
-                          onTap: () => _showEditAvatarSheet(context),
-                          child: Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: CupertinoColors.activeBlue,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: context
-                                    .watch<ThemeController>()
-                                    .palette
-                                    .scaffoldBackground,
-                                width: 3,
-                              ),
-                            ),
-                            child: const Icon(
-                              CupertinoIcons.camera_fill,
-                              size: 16,
-                              color: CupertinoColors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Display name
-                  Text(
-                    displayName,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-
-                  const SizedBox(height: 4),
-
-                  // Matrix ID
-                  Text(
-                    widget.client.userID ?? '',
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: context
-                          .watch<ThemeController>()
-                          .palette
-                          .secondaryText,
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Edit Profile button
-                  CupertinoButton(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 10,
-                    ),
-                    color: CupertinoColors.systemGrey5.resolveFrom(context),
-                    borderRadius: BorderRadius.circular(20),
-                    onPressed: () => _showEditProfileSheet(context),
-                    child: Text(
-                      'Edit Profile',
-                      style: TextStyle(
-                        color: context.watch<ThemeController>().palette.text,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  void _showEditAvatarSheet(BuildContext context) {
-    // ... existing implementation ...
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (context) => CupertinoActionSheet(
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Take Photo'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Choose from Library'),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          isDefaultAction: true,
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showEditProfileSheet(BuildContext context) async {
-    // Wait for result
+  Future<void> _showEditProfileSheet(
+    BuildContext context,
+    Client client,
+    String currentName,
+  ) async {
     await showCupertinoModalPopup<void>(
       context: context,
-      builder: (context) => _EditProfileSheet(client: widget.client),
+      builder: (context) =>
+          _EditProfileSheet(client: client, currentName: currentName),
     );
-    // Trigger update in parent
-    widget.onProfileUpdated?.call();
-    // Also setState here just in case
-    setState(() {});
+    setState(() {
+      _profileFuture = client.fetchOwnProfile();
+    });
   }
 }
 
-// =============================================================================
-// HELPER WIDGETS
-// =============================================================================
-
-/// Statistics item widget.
 class _StatItem extends StatelessWidget {
   final String value;
   final String label;
-  final IconData icon;
-  final Color color;
+  final dynamic palette;
 
   const _StatItem({
     required this.value,
     required this.label,
-    required this.icon,
-    required this.color,
+    required this.palette,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        children: [
-          Icon(icon, size: 24, color: color),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
-            ),
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+            color: palette.text,
           ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: context.watch<ThemeController>().palette.secondaryText,
-            ),
-          ),
-        ],
-      ),
+        ),
+        Text(
+          label,
+          style: TextStyle(fontSize: 13, color: palette.secondaryText),
+        ),
+      ],
     );
   }
 }
 
-/// Vertical divider for stats.
-class _StatDivider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 0.5,
-      height: 50,
-      color: context.watch<ThemeController>().palette.separator,
-    );
-  }
-}
-
-/// Profile action tile.
 class _ProfileActionTile extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final String title;
-  final String subtitle;
   final VoidCallback onTap;
   final bool isDestructive;
+  final dynamic palette;
 
   const _ProfileActionTile({
     required this.icon,
     required this.iconColor,
     required this.title,
-    required this.subtitle,
     required this.onTap,
+    required this.palette,
     this.isDestructive = false,
   });
 
@@ -531,52 +463,34 @@ class _ProfileActionTile extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, size: 20, color: iconColor),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w400,
-                      color: isDestructive
-                          ? CupertinoColors.systemRed
-                          : context.watch<ThemeController>().palette.text,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: context
-                          .watch<ThemeController>()
-                          .palette
-                          .secondaryText,
-                    ),
-                  ),
-                ],
-              ),
-            ),
             Icon(
-              CupertinoIcons.chevron_right,
-              size: 14,
-              color: context.watch<ThemeController>().palette.secondaryText,
+              icon,
+              size: 24,
+              color: isDestructive ? CupertinoColors.systemRed : iconColor,
             ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 17,
+                  color: isDestructive
+                      ? CupertinoColors.systemRed
+                      : palette.text,
+                ),
+              ),
+            ),
+            if (!isDestructive)
+              Icon(
+                CupertinoIcons.chevron_right,
+                size: 16,
+                color: palette.secondaryText.withValues(alpha: 0.5),
+              ),
           ],
         ),
       ),
@@ -584,15 +498,11 @@ class _ProfileActionTile extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// EDIT PROFILE SHEET
-// =============================================================================
-
-/// Bottom sheet for editing profile.
 class _EditProfileSheet extends StatefulWidget {
   final Client client;
+  final String currentName;
 
-  const _EditProfileSheet({required this.client});
+  const _EditProfileSheet({required this.client, required this.currentName});
 
   @override
   State<_EditProfileSheet> createState() => _EditProfileSheetState();
@@ -605,15 +515,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   @override
   void initState() {
     super.initState();
-    _displayNameController = TextEditingController();
-    _loadProfile();
-  }
-
-  Future<void> _loadProfile() async {
-    try {
-      final profile = await widget.client.fetchOwnProfile();
-      _displayNameController.text = profile.displayName ?? '';
-    } catch (_) {}
+    _displayNameController = TextEditingController(text: widget.currentName);
   }
 
   @override
@@ -626,7 +528,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     setState(() => _isLoading = true);
 
     try {
-      // Use the Matrix API to set display name via profile field
       final userId = widget.client.userID!;
       await widget.client.setProfileField(userId, 'displayname', {
         'displayname': _displayNameController.text.trim(),
@@ -659,59 +560,62 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final themeController = context.watch<ThemeController>();
+    final palette = themeController.palette;
+
     return Container(
-      height: 300,
-      padding: const EdgeInsets.all(20),
+      height: 350,
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: context.watch<ThemeController>().palette.scaffoldBackground,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        color: palette.scaffoldBackground,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Handle
           Center(
             child: Container(
-              width: 36,
-              height: 5,
+              width: 40,
+              height: 4,
               decoration: BoxDecoration(
-                color: CupertinoColors.systemGrey3,
-                borderRadius: BorderRadius.circular(2.5),
+                color: palette.separator,
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
-
-          const SizedBox(height: 20),
-
-          // Title
-          const Text(
+          const SizedBox(height: 24),
+          Text(
             'Edit Profile',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: palette.text,
+            ),
             textAlign: TextAlign.center,
           ),
-
-          const SizedBox(height: 24),
-
-          // Display Name
+          const SizedBox(height: 32),
           CupertinoTextField(
             controller: _displayNameController,
             placeholder: 'Display Name',
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             decoration: BoxDecoration(
-              color: context.watch<ThemeController>().palette.inputBackground,
-              borderRadius: BorderRadius.circular(10),
+              color: palette.inputBackground,
+              borderRadius: BorderRadius.circular(12),
             ),
+            style: TextStyle(color: palette.text),
           ),
-
           const Spacer(),
-
-          // Save button
           CupertinoButton.filled(
             onPressed: _isLoading ? null : _saveProfile,
+            borderRadius: BorderRadius.circular(12),
             child: _isLoading
                 ? const CupertinoActivityIndicator(color: CupertinoColors.white)
-                : const Text('Save Changes'),
+                : const Text(
+                    'Save',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
           ),
+          const SizedBox(height: 16),
         ],
       ),
     );

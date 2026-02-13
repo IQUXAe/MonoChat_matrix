@@ -258,6 +258,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get notConnected => 'Not Connected';
 
   @override
+  String get pushStatusStale => 'Connection may be stale';
+
+  @override
   String get pushDistributor => 'Distributor';
 
   @override

@@ -4,6 +4,7 @@
 /// - UnifiedPush registration and management
 /// - Matrix push rules configuration
 /// - Pusher management (registered devices)
+/// - Connection health diagnostics
 library;
 
 import 'dart:async';
@@ -26,6 +27,9 @@ class NotificationSettingsState {
   final bool upRegistered;
   final List<String> availableDistributors;
 
+  // Health info
+  final DateTime? lastPushReceived;
+
   // Matrix pushers (registered devices)
   final List<Pusher> pushers;
   final bool isLoadingPushers;
@@ -41,6 +45,7 @@ class NotificationSettingsState {
     this.upEndpoint,
     this.upRegistered = false,
     this.availableDistributors = const [],
+    this.lastPushReceived,
     this.pushers = const [],
     this.isLoadingPushers = false,
     this.pushRules,
@@ -54,6 +59,7 @@ class NotificationSettingsState {
     String? upEndpoint,
     bool? upRegistered,
     List<String>? availableDistributors,
+    DateTime? lastPushReceived,
     List<Pusher>? pushers,
     bool? isLoadingPushers,
     PushRuleSet? pushRules,
@@ -67,11 +73,22 @@ class NotificationSettingsState {
       upRegistered: upRegistered ?? this.upRegistered,
       availableDistributors:
           availableDistributors ?? this.availableDistributors,
+      lastPushReceived: lastPushReceived ?? this.lastPushReceived,
       pushers: pushers ?? this.pushers,
       isLoadingPushers: isLoadingPushers ?? this.isLoadingPushers,
       pushRules: pushRules ?? this.pushRules,
       isUpdatingRule: isUpdatingRule ?? this.isUpdatingRule,
     );
+  }
+
+  /// Whether the push connection looks healthy
+  /// Returns null if we can't determine (no data), true if healthy, false if stale
+  bool? get isPushHealthy {
+    if (!upRegistered) return null;
+    if (lastPushReceived == null) return null;
+    // Consider unhealthy if no push received in 24 hours
+    final age = DateTime.now().difference(lastPushReceived!);
+    return age < const Duration(hours: 24);
   }
 }
 
@@ -121,6 +138,15 @@ class NotificationSettingsController extends ChangeNotifier {
       final registered =
           prefs.getBool(SettingKeys.unifiedPushRegistered) ?? false;
 
+      // Load last push received timestamp
+      DateTime? lastPush;
+      final lastPushStr = prefs.getString(SettingKeys.unifiedPushLastSuccess);
+      if (lastPushStr != null) {
+        try {
+          lastPush = DateTime.parse(lastPushStr);
+        } catch (_) {}
+      }
+
       // Load push rules
       final pushRules = _client.globalPushRules;
 
@@ -130,6 +156,7 @@ class NotificationSettingsController extends ChangeNotifier {
         upEndpoint: endpoint,
         upRegistered: registered,
         availableDistributors: distributors,
+        lastPushReceived: lastPush,
         pushRules: pushRules,
       );
       notifyListeners();
@@ -171,16 +198,37 @@ class NotificationSettingsController extends ChangeNotifier {
     await refresh();
   }
 
-  /// Unregister from UnifiedPush
+  /// Unregister from UnifiedPush and clean up the Matrix pusher
   Future<void> unregisterUnifiedPush() async {
     _state = _state.copyWith(isLoading: true);
     notifyListeners();
 
     try {
-      await UnifiedPush.unregister();
+      // Get the current endpoint before unregistering, so we can remove the server pusher
       final prefs = await SharedPreferences.getInstance();
+      final oldEndpoint = prefs.getString(SettingKeys.unifiedPushEndpoint);
+
+      await UnifiedPush.unregister();
+
       await prefs.remove(SettingKeys.unifiedPushEndpoint);
       await prefs.setBool(SettingKeys.unifiedPushRegistered, false);
+      await prefs.remove(SettingKeys.unifiedPushLastSuccess);
+
+      // Remove the pusher from the Matrix server
+      if (oldEndpoint != null && oldEndpoint.isNotEmpty) {
+        try {
+          final pushers = await _client.getPushers() ?? [];
+          for (final pusher in pushers) {
+            if (pusher.pushkey == oldEndpoint) {
+              await _client.deletePusher(pusher);
+              Logs().i('[Push] Removed server pusher for old endpoint');
+              break;
+            }
+          }
+        } catch (e) {
+          Logs().w('[Push] Failed to remove server pusher: $e');
+        }
+      }
 
       _state = _state.copyWith(
         isLoading: false,

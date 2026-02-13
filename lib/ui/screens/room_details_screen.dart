@@ -1,5 +1,7 @@
+import 'dart:ui';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Divider;
+import 'package:flutter/material.dart' show Colors, Divider;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:matrix/matrix.dart';
@@ -72,47 +74,73 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
     }
   }
 
+  static Map<String, int> _calculateMediaCounts(
+    List<Map<String, dynamic>> events,
+  ) {
+    var photos = 0, videos = 0, audios = 0, links = 0, files = 0;
+
+    for (final event in events) {
+      if (event['type'] != EventTypes.Message) continue;
+      if (event['redacted'] == true) continue;
+
+      final content = event['content'] as Map<String, dynamic>? ?? {};
+      final msgType = content['msgtype'] as String?;
+      final body = content['body'] as String?;
+
+      if (msgType == MessageTypes.Image) {
+        photos++;
+      } else if (msgType == MessageTypes.Video) {
+        videos++;
+      } else if (msgType == MessageTypes.Audio) {
+        audios++;
+      } else if (msgType == MessageTypes.File) {
+        files++;
+      } else if (msgType == MessageTypes.Text) {
+        if (body != null &&
+            (body.contains('http://') || body.contains('https://'))) {
+          links++;
+        }
+      }
+    }
+
+    return {
+      'photos': photos,
+      'videos': videos,
+      'audios': audios,
+      'files': files,
+      'links': links,
+    };
+  }
+
   Future<void> _loadMediaCounts() async {
     try {
       final timeline = await widget.room.getTimeline();
 
-      // Request more history to get accurate counts
-      var attempts = 0;
-      while (timeline.canRequestHistory && attempts < 3) {
-        await timeline.requestHistory(historyCount: 100);
-        attempts++;
+      // Request history with larger batch size (single request more efficient than multiple)
+      if (timeline.canRequestHistory) {
+        await timeline.requestHistory(historyCount: 300);
       }
 
-      var photos = 0, videos = 0, audios = 0, links = 0, files = 0;
+      // Convert events to simplified maps for the isolate
+      final simpleEvents = timeline.events
+          .map(
+            (e) => {
+              'type': e.type,
+              'redacted': e.redacted,
+              'content': e.content,
+            },
+          )
+          .toList();
 
-      for (final event in timeline.events) {
-        if (event.type != EventTypes.Message) continue;
-
-        final msgType = event.messageType;
-        if (msgType == MessageTypes.Image) {
-          photos++;
-        } else if (msgType == MessageTypes.Video) {
-          videos++;
-        } else if (msgType == MessageTypes.Audio) {
-          audios++;
-        } else if (msgType == MessageTypes.File) {
-          files++;
-        } else if (msgType == MessageTypes.Text) {
-          // Check for links
-          final body = event.body;
-          if (body.contains('http://') || body.contains('https://')) {
-            links++;
-          }
-        }
-      }
+      final counts = await compute(_calculateMediaCounts, simpleEvents);
 
       if (mounted) {
         setState(() {
-          _photoCount = photos;
-          _videoCount = videos;
-          _audioCount = audios;
-          _linkCount = links;
-          _fileCount = files;
+          _photoCount = counts['photos'] ?? 0;
+          _videoCount = counts['videos'] ?? 0;
+          _audioCount = counts['audios'] ?? 0;
+          _linkCount = counts['links'] ?? 0;
+          _fileCount = counts['files'] ?? 0;
           _loadingMedia = false;
         });
       }
@@ -257,57 +285,121 @@ class _RoomDetailsScreenState extends State<RoomDetailsScreen> {
 
   Widget _buildAvatarSection(AppPalette palette) {
     final room = widget.room;
+    final size = MediaQuery.of(context).size;
 
-    return Column(
-      children: [
-        GestureDetector(
-          onTap: room.avatar != null
-              ? () => _showAvatarFullScreen(room.avatar!)
-              : null,
-          child: Container(
-            width: 100,
-            height: 100,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: palette.inputBackground,
-              border: Border.all(color: palette.separator, width: 0.5),
+    return SizedBox(
+      height: 280,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // 1. Blurred Background
+          if (room.avatar != null)
+            Positioned.fill(
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 50, sigmaY: 50),
+                child: Opacity(
+                  opacity: 0.4,
+                  child: MxcImage(
+                    uri: room.avatar!,
+                    client: widget.client,
+                    fit: BoxFit.cover,
+                    width: size.width,
+                    height: 280,
+                  ),
+                ),
+              ),
             ),
-            child: ClipOval(
-              child: room.avatar != null
-                  ? MxcImage(
-                      uri: room.avatar!,
-                      client: widget.client,
-                      width: 100,
-                      height: 100,
-                      fit: BoxFit.cover,
-                    )
-                  : Center(
-                      child: Text(
-                        _getInitials(room.getLocalizedDisplayname()),
-                        style: TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w500,
-                          color: palette.primary,
-                        ),
-                      ),
+
+          // 2. Gradient Overlay for readability
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    palette.scaffoldBackground.withValues(alpha: 0.1),
+                    palette.scaffoldBackground,
+                  ],
+                  stops: const [0.0, 1.0],
+                ),
+              ),
+            ),
+          ),
+
+          // 3. Content
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: room.avatar != null
+                    ? () => _showAvatarFullScreen(room.avatar!)
+                    : null,
+                child: Container(
+                  width: 120, // Slightly larger
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: palette.inputBackground,
+                    border: Border.all(
+                      color: palette.separator.withValues(alpha: 0.5),
+                      width: 2, // Thicker border
                     ),
-            ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: ClipOval(
+                    child: room.avatar != null
+                        ? MxcImage(
+                            uri: room.avatar!,
+                            client: widget.client,
+                            width: 120,
+                            height: 120,
+                            fit: BoxFit.cover,
+                          )
+                        : Center(
+                            child: Text(
+                              _getInitials(room.getLocalizedDisplayname()),
+                              style: TextStyle(
+                                fontSize: 48,
+                                fontWeight: FontWeight.w500,
+                                color: palette.primary,
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+              const Gap(16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  widget.room.getLocalizedDisplayname(),
+                  style: TextStyle(
+                    fontSize: 28, // Larger title
+                    fontWeight: FontWeight.bold,
+                    color: palette.text,
+                    shadows: [
+                      BoxShadow(
+                        color: palette.scaffoldBackground.withValues(
+                          alpha: 0.5,
+                        ),
+                        blurRadius: 10,
+                      ),
+                    ],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
           ),
-        ),
-        const Gap(16),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Text(
-            widget.room.getLocalizedDisplayname(),
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: palette.text,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1288,19 +1380,12 @@ class _MediaGalleryScreenState extends State<MediaGalleryScreen> {
 
   Future<void> _loadMedia() async {
     try {
+      // SDK caches timeline internally, so this is efficient
       final timeline = await widget.room.getTimeline();
 
-      // Request more history to find media
-      var attempts = 0;
-      while (timeline.canRequestHistory && attempts < 5) {
-        await timeline.requestHistory(historyCount: 100);
-        attempts++;
-        // Check if we found enough media
-        final foundMedia = timeline.events.where((e) {
-          if (e.type != EventTypes.Message) return false;
-          return e.messageType == widget.mediaType;
-        }).length;
-        if (foundMedia >= 50) break;
+      // Single larger batch request instead of sequential loop
+      if (timeline.canRequestHistory) {
+        await timeline.requestHistory(historyCount: 500);
       }
 
       final events = timeline.events.where((e) {
@@ -1444,6 +1529,9 @@ class LinksScreen extends StatefulWidget {
 }
 
 class _LinksScreenState extends State<LinksScreen> {
+  // Static regex to avoid recompilation on every call
+  static final _linkRegex = RegExp(r'https?://[^\s]+');
+
   List<(Event, String)> _links = [];
   bool _loading = true;
 
@@ -1457,21 +1545,17 @@ class _LinksScreenState extends State<LinksScreen> {
     try {
       final timeline = await widget.room.getTimeline();
 
-      // Request more history to find links
-      var attempts = 0;
-      while (timeline.canRequestHistory && attempts < 5) {
-        await timeline.requestHistory(historyCount: 100);
-        attempts++;
+      // Single batch request instead of sequential loop
+      if (timeline.canRequestHistory) {
+        await timeline.requestHistory(historyCount: 500);
       }
-
-      final linkRegex = RegExp(r'https?://[^\s]+');
 
       final links = <(Event, String)>[];
       for (final event in timeline.events) {
         if (event.type != EventTypes.Message) continue;
         if (event.messageType != MessageTypes.Text) continue;
 
-        final matches = linkRegex.allMatches(event.body);
+        final matches = _linkRegex.allMatches(event.body);
         for (final match in matches) {
           links.add((event, match.group(0)!));
         }

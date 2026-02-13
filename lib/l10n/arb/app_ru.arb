@@ -74,6 +74,7 @@
     "pushStatus": "Статус",
     "connected": "Подключено",
     "notConnected": "Не подключено",
+    "pushStatusStale": "Соединение может быть неактуально",
     "pushDistributor": "Дистрибьютор",
     "noneSelected": "Не выбран",
     "pushEndpoint": "Endpoint",

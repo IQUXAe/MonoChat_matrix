@@ -77,7 +77,9 @@ extension ClientDownloadContentExtension on Client {
         // Standard Matrix SDK uses `http.Client`.
 
         // Actually, we can just use `http.get`.
-        response = await http.get(httpUri, headers: headers);
+        response = await http
+            .get(httpUri, headers: headers)
+            .timeout(const Duration(seconds: 30));
         break; // Success, exit retry loop
       } on http.ClientException catch (e) {
         // Handle transient connection errors (connection closed prematurely, etc.)

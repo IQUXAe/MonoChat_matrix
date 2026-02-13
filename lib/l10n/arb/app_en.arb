@@ -243,6 +243,8 @@
     "@connected": { "description": "Connected status" },
     "notConnected": "Not Connected",
     "@notConnected": { "description": "Not connected status" },
+    "pushStatusStale": "Connection may be stale",
+    "@pushStatusStale": { "description": "Warning when no push received recently" },
     "pushDistributor": "Distributor",
     "@pushDistributor": { "description": "Push distributor label" },
     "noneSelected": "None selected",

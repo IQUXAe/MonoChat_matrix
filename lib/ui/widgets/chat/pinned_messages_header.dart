@@ -35,7 +35,10 @@ class _PinnedMessagesHeaderState extends State<PinnedMessagesHeader> {
   @override
   void initState() {
     super.initState();
-    _updatePinnedEvents();
+    // Defer to avoid calling setState during build phase
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updatePinnedEvents();
+    });
     _subscription = widget.room.client.onSync.stream.listen((_) {
       _checkForUpdates();
     });

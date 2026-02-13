@@ -145,13 +145,61 @@ class _RoomListScreenState extends State<RoomListScreen> {
                           ),
                         ),
                       ),
-                      SliverPadding(
-                        padding: EdgeInsets.only(
-                          bottom: MediaQuery.of(context).padding.bottom + 100,
-                        ),
-                        sliver: SliverList(
-                          delegate: SliverChildBuilderDelegate(
-                            (context, index) {
+                      if (rooms.isEmpty)
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  CupertinoIcons.chat_bubble_2,
+                                  size: 64,
+                                  color: palette.secondaryText.withValues(
+                                    alpha: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No chats yet',
+                                  style: TextStyle(
+                                    color: palette.secondaryText,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                CupertinoButton(
+                                  child: const Text('Start a new chat'),
+                                  onPressed: () {
+                                    final spaceController = context
+                                        .read<SpaceController>();
+                                    Navigator.of(context).push(
+                                      CupertinoPageRoute(
+                                        fullscreenDialog: true,
+                                        builder: (_) =>
+                                            ChangeNotifierProvider.value(
+                                              value: spaceController,
+                                              child: const NewChatScreen(),
+                                            ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        SliverPadding(
+                          padding: EdgeInsets.only(
+                            bottom: MediaQuery.of(context).padding.bottom + 100,
+                          ),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate((
+                              context,
+                              index,
+                            ) {
                               if (index.isOdd) {
                                 return Padding(
                                   padding: const EdgeInsets.only(left: 82),
@@ -168,13 +216,9 @@ class _RoomListScreenState extends State<RoomListScreen> {
                                 key: ValueKey(room.id),
                                 room: room,
                               );
-                            },
-                            childCount: rooms.isNotEmpty
-                                ? rooms.length * 2 - 1
-                                : 0,
+                            }, childCount: rooms.length * 2 - 1),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -236,60 +280,9 @@ class _RoomTile extends StatefulWidget {
 
 class _RoomTileState extends State<_RoomTile> {
   bool _isPressed = false;
-  StreamSubscription? _subscription;
-
-  @override
-  void initState() {
-    super.initState();
-    _subscribe();
-  }
-
-  @override
-  void didUpdateWidget(_RoomTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.room.id != oldWidget.room.id ||
-        widget.room.client != oldWidget.room.client) {
-      _unsubscribe();
-      _subscribe();
-    }
-  }
-
-  @override
-  void dispose() {
-    _unsubscribe();
-    super.dispose();
-  }
-
-  void _subscribe() {
-    // Determine which client to listen to
-    final client = widget.room.client;
-
-    _subscription = client.onSync.stream.listen((syncUpdate) {
-      final roomId = widget.room.id;
-      // Filter updates to only this room to avoid unnecessary rebuilds.
-      // This maintains "Best Practice" performance while ensuring the "instant"
-      // update behavior the user desires for the specific chat events.
-      final roomUpdate = syncUpdate.rooms?.join?[roomId];
-      final hasRelevantUpdate =
-          (roomUpdate != null &&
-              (roomUpdate.timeline != null ||
-                  roomUpdate.state != null ||
-                  roomUpdate.ephemeral != null ||
-                  roomUpdate.accountData != null ||
-                  roomUpdate.unreadNotifications != null)) ||
-          (syncUpdate.rooms?.invite?.containsKey(roomId) ?? false) ||
-          (syncUpdate.rooms?.leave?.containsKey(roomId) ?? false);
-
-      if (hasRelevantUpdate && mounted) {
-        setState(() {});
-      }
-    });
-  }
-
-  void _unsubscribe() {
-    _subscription?.cancel();
-    _subscription = null;
-  }
+  // NOTE: No per-tile sync subscription needed!
+  // RoomListController already listens to sync stream and calls notifyListeners(),
+  // which rebuilds the entire room list including this tile.
 
   String _getMessagePreview(Event? event, Room room) {
     if (room.isSpace) return 'Space';

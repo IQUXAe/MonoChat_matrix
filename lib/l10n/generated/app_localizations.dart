@@ -536,6 +536,12 @@ abstract class AppLocalizations {
   /// **'Not Connected'**
   String get notConnected;
 
+  /// Warning when no push received recently
+  ///
+  /// In en, this message translates to:
+  /// **'Connection may be stale'**
+  String get pushStatusStale;
+
   /// Push distributor label
   ///
   /// In en, this message translates to:
